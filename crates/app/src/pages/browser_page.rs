@@ -217,11 +217,30 @@ glib::wrapper! {
 #[derive(Debug, Clone)]
 enum Bulk {
     Suspend(bool),
-    Move { deck_id: String },
+    Move {
+        deck_id: String,
+    },
+    /// Move from one card's menu: the same, with a toast for one card.
+    MoveOne {
+        deck_id: String,
+    },
     AddTags(Vec<String>),
     RemoveTag(Tag),
     Reset,
     Delete,
+}
+
+/// The decks a card of deck `from` can be moved to from its menu: `None`
+/// when the card is not listed (nothing to do), else every deck but its own
+/// (empty: no other deck, so only a notice).
+fn card_move_targets(decks: &[Deck], from: Option<&str>) -> Option<Vec<Deck>> {
+    let from = from?;
+    Some(
+        move_card::targets(decks, from)
+            .into_iter()
+            .cloned()
+            .collect(),
+    )
 }
 
 /// Takes a bulk action back; returns how many cards it restored.
@@ -248,6 +267,7 @@ fn perform(
     action: Bulk,
     now: i64,
 ) -> rappel_core::Result<Result<Done, String>> {
+    let one_card = matches!(action, Bulk::MoveOne { .. });
     let done = match action {
         Bulk::Suspend(suspended) => {
             let changed = state.set_suspended(ids, suspended)?;
@@ -258,11 +278,15 @@ fn perform(
                 undo: Box::new(move |s| s.restore_suspended(&changed, !suspended)),
             }
         }
-        Bulk::Move { deck_id } => {
+        Bulk::Move { deck_id } | Bulk::MoveOne { deck_id } => {
             let moved = state.move_cards(ids, &deck_id)?;
             Done {
                 note: None,
-                text: text::moved_text(moved.len()),
+                text: if one_card {
+                    move_card::moved_text()
+                } else {
+                    text::moved_text(moved.len())
+                },
                 total: moved.len(),
                 undo: Box::new(move |s| s.unmove_cards(&moved)),
             }
@@ -1121,17 +1145,13 @@ impl BrowserPage {
     /// offered (`move_card::targets`); the move and its Undo are the bulk
     /// action's.
     fn move_card(&self, id: &str) {
-        let Some(from) = self
+        let from = self
             .position(id)
             .and_then(|p| self.item(p))
-            .map(|item| item.row().card.deck_id.clone())
-        else {
+            .map(|item| item.row().card.deck_id.clone());
+        let Some(targets) = card_move_targets(&self.imp().decks.borrow(), from.as_deref()) else {
             return;
         };
-        let targets: Vec<Deck> = move_card::targets(&self.imp().decks.borrow(), &from)
-            .into_iter()
-            .cloned()
-            .collect();
         if targets.is_empty() {
             show_toast_from(self, info_toast(&move_card::no_other_deck_text()));
             return;
@@ -1160,7 +1180,7 @@ impl BrowserPage {
                     }
                 );
                 if let Some(deck) = move_card::choose_deck(&page, targets, closed).await {
-                    page.run_on(&id, Bulk::Move { deck_id: deck.id });
+                    page.run_on(&id, Bulk::MoveOne { deck_id: deck.id });
                     moved.set(true);
                 }
             }
@@ -1765,7 +1785,7 @@ mod tests {
     #[test]
     fn a_card_menu_offers_move_to_deck_with_two_decks_or_more() {
         crate::testing::with_widgets(|| {
-            let (_tmp, state, ids, _) = state_with_cards();
+            let (_tmp, state, _, _) = state_with_cards();
             let page = page_over(&state, None);
             assert!(page.can_move());
 
@@ -1779,23 +1799,81 @@ mod tests {
             one.create_deck("Second").unwrap();
             page.reload_all();
             assert!(page.can_move());
+        });
+    }
 
-            // The menu's move goes through the bulk action: the card is in
-            // the other deck, with the same Undo.
+    #[test]
+    fn a_cards_move_targets_leave_out_its_own_deck() {
+        let deck = |id: &str| Deck {
+            id: id.to_owned(),
+            name: id.to_owned(),
+            created_at: 0,
+            updated_at: 0,
+        };
+        let decks = [deck("a"), deck("b")];
+        let ids = |targets: Option<Vec<Deck>>| -> Option<Vec<String>> {
+            targets.map(|t| t.into_iter().map(|d| d.id).collect())
+        };
+        assert_eq!(
+            ids(card_move_targets(&decks, Some("a"))),
+            Some(vec!["b".to_owned()])
+        );
+        // One deck: nothing to choose, so only a notice.
+        assert_eq!(ids(card_move_targets(&decks[..1], Some("a"))), Some(vec![]));
+        // A card that is not listed: nothing is done at all.
+        assert_eq!(card_move_targets(&decks, None), None);
+    }
+
+    #[test]
+    fn a_move_from_a_card_menu_says_card_moved_and_undoes() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state, ids, _) = state_with_cards();
             let art = state
                 .decks()
                 .unwrap()
                 .into_iter()
                 .find(|d| d.name == "Art")
                 .unwrap();
-            let page = page_over(&state, None);
-            page.run_on(
-                &ids[0],
-                Bulk::Move {
+            let now = rappel_core::time::now_ms();
+            let done = perform(
+                &state,
+                &ids[..1],
+                Bulk::MoveOne {
                     deck_id: art.id.clone(),
                 },
-            );
+                now,
+            )
+            .unwrap()
+            .unwrap();
+            assert_eq!(done.text, "Card moved");
             assert_eq!(state.card(&ids[0]).unwrap().deck_id, art.id);
+            assert_eq!((done.undo)(&state).unwrap(), 1);
+            // The bulk action keeps counting.
+            let done = perform(&state, &ids[..1], Bulk::Move { deck_id: art.id }, now)
+                .unwrap()
+                .unwrap();
+            assert_eq!(done.text, "1 card moved");
+        });
+    }
+
+    /// Pressing Select (Enter or Space on it) hides it, so the focus goes
+    /// to the list (Ctrl+A does the same through the same code).
+    #[test]
+    fn pressing_select_moves_the_focus_to_the_list() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state, _, _) = state_with_cards();
+            let page = page_over(&state, None);
+            let window = gtk::Window::builder().child(&page).build();
+            let imp = page.imp();
+            gtk::prelude::GtkWindowExt::set_focus(&window, Some(&*imp.select_button));
+            imp.select_button.emit_clicked();
+            assert!(page.selecting());
+            assert!(!imp.select_button.is_visible());
+            assert!(
+                gtk::prelude::GtkWindowExt::focus(&window)
+                    .is_some_and(|w| w == *imp.card_list || w.is_ancestor(&*imp.card_list)),
+                "the focus is in the list, not nowhere"
+            );
         });
     }
 

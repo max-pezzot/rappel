@@ -1791,6 +1791,15 @@ mod tests {
         crate::testing::with_widgets(|| {
             let (_tmp, _state, page, _) = page_of(2);
             assert!(!page.imp().can_move.get(), "the only deck");
+            // The disabled action opens nothing.
+            let _ = page.activate_action("review.move", None);
+            assert!(!page.imp().asking.get());
+            // Even if the page thought there was a deck (a stale flag): the
+            // look at the decks finds none, says so and opens nothing.
+            page.imp().can_move.set(true);
+            page.move_current();
+            assert!(!page.imp().asking.get());
+            assert!(!page.imp().can_move.get(), "the flag is corrected");
             let (_tmp2, state2) = crate::testing::temporary_state();
             state2.create_deck("Other").unwrap();
             let (page2, _) = page_over(&state2, &sides(1));

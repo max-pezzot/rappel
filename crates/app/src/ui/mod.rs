@@ -1,7 +1,7 @@
 //! Small helpers shared by the pages, dialogs and rows: toasts, alert
 //! dialogs, drop-downs, breakpoints, navigation, row menus, focus,
-//! one-time cells, Ctrl+A for card lists, texts, dates, headline tiles, debouncing, worker
-//! threads and what an undo that failed means. No layouts. Use these
+//! one-time cells, Ctrl+A for card lists, texts, dates, headline tiles,
+//! debouncing, worker threads and what an undo that failed means. No layouts. Use these
 //! instead of writing a local copy.
 
 pub mod breakpoint;
