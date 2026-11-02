@@ -8,6 +8,8 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 - Roadmap (SPEC §4, §5): phase 3a, organising and studying, ends in 0.4.0; phase 3b, publishing (a Snap, a self-hosted Flatpak, the finished metainfo and icon), ends in 1.0. 0.2.0 and 0.3.0 are not released as stable.
+
+### Security
 - `pulldown-cmark` updated to 0.13.6 for RUSTSEC-2026-0414 and RUSTSEC-2026-0433. Rappel never enabled wikilinks, so it was not affected (#108).
 
 ## [0.3.0-beta.1] — 2026-10-19
