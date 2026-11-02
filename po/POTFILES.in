@@ -19,6 +19,8 @@ crates/app/data/recovery_page.blp
 crates/app/data/restore_dialog.blp
 crates/app/data/retention_dialog.blp
 crates/app/data/review_page.blp
+crates/app/data/selection_bar.blp
+crates/app/data/selection_header.blp
 crates/app/data/setting_page.blp
 crates/app/data/shortcuts-dialog.blp
 crates/app/data/start_fresh_dialog.blp
@@ -53,6 +55,8 @@ crates/app/src/transfer/anki_text.rs
 crates/app/src/transfer/mod.rs
 crates/app/src/transfer/text.rs
 crates/app/src/ui/rows.rs
+crates/app/src/ui/selection.rs
+crates/app/src/ui/selection/text.rs
 crates/app/src/ui/text.rs
 crates/app/src/ui/time.rs
 crates/app/src/ui/toast.rs

@@ -572,7 +572,7 @@ impl DeckPage {
             // list is old.
             Ok(_) | Err(Error::CardNotFound(_) | Error::DeckNotFound(_)) => {
                 self.reload();
-                show_toast_from(self, info_toast(&crate::pages::browser_text::stale_text()));
+                show_toast_from(self, info_toast(&crate::ui::selection::text::stale_text()));
                 return None;
             }
             Err(err) => {
@@ -885,7 +885,7 @@ enum Notice {
 /// e.g. after an import): that is information, not an error.
 fn reset_notice(err: &Error) -> Notice {
     match err {
-        Error::CardAlreadyNew(_) => Notice::Info(crate::pages::browser_text::no_progress_text(1)),
+        Error::CardAlreadyNew(_) => Notice::Info(crate::ui::selection::text::no_progress_text(1)),
         // Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
         err => Notice::Error(with_error(
             &gettext("The progress could not be reset: {error}"),

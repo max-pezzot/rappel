@@ -143,7 +143,7 @@ fn bound_keys() -> Vec<(&'static str, Vec<String>)> {
         ),
         (
             "All Cards",
-            browser_text::LIST_KEYS
+            crate::ui::selection::text::LIST_KEYS
                 .iter()
                 .map(|&(key, ctrl, _)| trigger(key, ctrl))
                 .chain(

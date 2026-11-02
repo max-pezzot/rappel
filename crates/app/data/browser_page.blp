@@ -16,91 +16,52 @@ template $RappelBrowserPage: Adw.NavigationPage {
 
     // A phone: no card count beside the filters (they need the width),
     // fewer pills in the rows, Select All and the action buttons without
-    // their words.
+    // their words (the page's `compact`, which they follow).
     Adw.Breakpoint breakpoint {
       condition ("max-width: 500sp")
 
       setters {
         count_label.visible: false;
-        select_all_content.label: "";
-        move_content.label: "";
-        tags_content.label: "";
-        reset_content.label: "";
-        delete_content.label: "";
       }
     }
 
     child: Adw.ToolbarView {
+      // The search field as the title. While cards are being chosen the
+      // shared header of selection mode takes its place (ui/selection.rs).
       [top]
-      Adw.HeaderBar {
-        // The search field, or, while cards are being chosen, how many are
-        // (HIG, "Selection mode": a cancel button, and the heading says
-        // the number of selected items).
-        title-widget: Gtk.Stack title_stack {
-          hhomogeneous: false;
+      Adw.HeaderBar header {
+        title-widget: Adw.Clamp {
+          maximum-size: 400;
+          tightening-threshold: 300;
 
-          Gtk.StackPage {
-            name: "search";
+          child: Gtk.SearchEntry search_entry {
+            placeholder-text: _("Search cards");
+            search-delay: 150;
+            hexpand: true;
 
-            child: Adw.Clamp {
-              maximum-size: 400;
-              tightening-threshold: 300;
-
-              child: Gtk.SearchEntry search_entry {
-                placeholder-text: _("Search cards");
-                search-delay: 150;
-                hexpand: true;
-
-                accessibility {
-                  label: _("Search cards");
-                }
-              };
-            };
-          }
-
-          Gtk.StackPage {
-            name: "selection";
-
-            child: Adw.WindowTitle selection_title {};
-          }
-        };
-
-        // While choosing; the page cannot be popped then, so Back hides.
-        [start]
-        Gtk.Button select_all_button {
-          visible: false;
-          action-name: "browser.select-all";
-          tooltip-text: _("Select All");
-
-          accessibility {
-            label: _("Select All");
-          }
-
-          child: Adw.ButtonContent select_all_content {
-            icon-name: "edit-select-all-symbolic";
-            label: _("Select _All");
-            use-underline: true;
+            accessibility {
+              label: _("Search cards");
+            }
           };
-        }
+        };
 
         [end]
         Gtk.Button select_button {
           icon-name: "selection-mode-symbolic";
-          action-name: "browser.choose";
+          action-name: "selection.choose";
           tooltip-text: _("Select Cards");
 
           accessibility {
             label: _("Select Cards");
           }
         }
+      }
 
-        [end]
-        Gtk.Button cancel_button {
-          visible: false;
-          label: _("_Cancel");
-          use-underline: true;
-          action-name: "browser.cancel";
-        }
+      // How many cards are chosen, Select All and Cancel (HIG, "Selection
+      // mode"); the page cannot be popped then, so Back hides.
+      [top]
+      $RappelSelectionHeader selection_header {
+        visible: false;
       }
 
       // Deck, tag and state, side by side and as wide as the list under
@@ -238,94 +199,9 @@ template $RappelBrowserPage: Adw.NavigationPage {
       };
 
       // The actions on the chosen cards (HIG, "Selection mode": an action
-      // bar at the bottom). On a phone the buttons keep only their icons;
-      // the tooltips and accessible labels stay.
+      // bar at the bottom), shared with a deck's page.
       [bottom]
-      Gtk.ActionBar action_bar {
-        revealed: false;
-
-        [start]
-        Gtk.Button move_button {
-          action-name: "browser.move";
-          tooltip-text: _("Move to Deck");
-
-          accessibility {
-            label: _("Move selected cards to a deck");
-          }
-
-          child: Adw.ButtonContent move_content {
-            icon-name: "folder-symbolic";
-            label: _("Move…");
-          };
-        }
-
-        [start]
-        Gtk.MenuButton tags_button {
-          menu-model: tags_menu;
-          tooltip-text: _("Tags");
-
-          accessibility {
-            label: _("Tags of selected cards");
-          }
-
-          child: Adw.ButtonContent tags_content {
-            icon-name: "bookmark-new-symbolic";
-            label: _("Tags");
-          };
-        }
-
-        [start]
-        Gtk.Button suspend_button {
-          action-name: "browser.suspend-selected";
-          tooltip-text: _("Suspend");
-
-          accessibility {
-            label: _("Suspend selected cards");
-          }
-
-          child: Adw.ButtonContent suspend_content {
-            icon-name: "media-playback-pause-symbolic";
-            label: _("Suspend");
-          };
-        }
-
-        [end]
-        Gtk.Button delete_button {
-          action-name: "browser.delete-selected";
-          tooltip-text: _("Delete");
-
-          accessibility {
-            label: _("Delete selected cards");
-          }
-
-          child: Adw.ButtonContent delete_content {
-            icon-name: "user-trash-symbolic";
-            label: _("Delete");
-          };
-        }
-
-        [end]
-        Gtk.Button reset_button {
-          action-name: "browser.reset-selected";
-          tooltip-text: _("Reset Progress");
-
-          accessibility {
-            label: _("Reset progress of selected cards");
-          }
-
-          child: Adw.ButtonContent reset_content {
-            icon-name: "view-refresh-symbolic";
-            label: _("Reset");
-          };
-        }
-      }
+      $RappelSelectionBar selection_bar {}
     };
   };
-}
-
-menu tags_menu {
-  section {
-    item (_("_Add Tags…"), "browser.add-tags")
-    item (_("_Remove Tag…"), "browser.remove-tag")
-  }
 }
