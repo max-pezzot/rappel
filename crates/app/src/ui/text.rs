@@ -118,6 +118,19 @@ pub fn tenths(n: usize) -> String {
     }
 }
 
+/// "“Spanish” could not be restored: …": an Undo that brought a deck back
+/// failed with `err` (Delete Deck's, and Merge Into…'s for the errors it
+/// does not word itself).
+pub fn not_restored(name: &str, err: &rappel_core::Error) -> String {
+    fill(
+        // Translators: a toast: what is before ":" is its title, the
+        // rest is behind Details. {name} is a deck's name, {error}
+        // why, in English.
+        &gettext("“{name}” could not be restored: {error}"),
+        &[("name", name), ("error", &err.to_string())],
+    )
+}
+
 /// `template`, a counted message from `ngettext`, with `{count}` as `n` in
 /// grouped digits: `counted(&ngettext("{count} deck", "{count} decks", n), n)`
 /// gives "1 deck", "1,200 decks".

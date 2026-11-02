@@ -7,12 +7,13 @@
 
 use adw::prelude::*;
 use gtk::glib;
+use rappel_core::Error;
 use rappel_core::domain::Deck;
 use rappel_core::storage::Merged;
 
 use crate::i18n::{fill, gettext, ngettext};
 use crate::state::AppState;
-use crate::ui::text::{counted, with_error};
+use crate::ui::text::{counted, not_restored, with_error};
 use crate::ui::toast::{info_toast, show_error, show_toast_from, undo_toast};
 use crate::ui::{dialog, dropdown};
 
@@ -141,17 +142,28 @@ pub async fn choose_target(
     targets.into_iter().nth(chosen)
 }
 
+/// A merge made from a menu: both decks as they were, for the texts of
+/// its Undo, and what core needs to undo it.
+#[derive(Debug, Clone)]
+pub struct Done {
+    /// The deck merged, now deleted.
+    pub source: Deck,
+    /// The deck it went into.
+    pub target: Deck,
+    /// What `unmerge_deck` undoes.
+    pub merged: Merged,
+}
+
 /// Merge Into… for deck `source_id`, over `page`: reads the decks and the
-/// card count, asks for the target, and merges. Returns the deck merged
-/// (as it was) and the merge, or `None` if there was nothing to do, the
-/// user cancelled, or it failed (after a toast). `on_closed` is as in
-/// [`choose_target`].
+/// card count, asks for the target, and merges. Returns the merge, or
+/// `None` if there was nothing to do, the user cancelled, or it failed
+/// (after a toast). `on_closed` is as in [`choose_target`].
 pub async fn run(
     page: &impl IsA<gtk::Widget>,
     state: &AppState,
     source_id: &str,
     on_closed: impl Fn() + 'static,
-) -> Option<(Deck, Merged)> {
+) -> Option<Done> {
     let read = state.decks().and_then(|decks| {
         let count = state.card_count(source_id)?;
         Ok((decks, count))
@@ -175,7 +187,11 @@ pub async fn run(
     }
     let target = choose_target(page, &source, count, targets, on_closed).await?;
     match state.merge_deck(&source.id, &target.id) {
-        Ok(merged) => Some((source, merged)),
+        Ok(merged) => Some(Done {
+            source,
+            target,
+            merged,
+        }),
         Err(err) => {
             // Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
             let message = with_error(&gettext("The decks could not be merged: {error}"), &err);
@@ -185,28 +201,50 @@ pub async fn run(
     }
 }
 
-/// The toast "Decks merged" with Undo. Undo undoes `merged` and gives
-/// `after` the result (the source deck, live again); it keeps the state,
-/// not a page, so it works after the page was left.
+/// The toast "Decks merged" with Undo. Undo undoes `done` and gives
+/// `after` the result (the source deck, live again) with `done`; it keeps
+/// the state, not a page, so it works after the page was left.
 pub fn merged_toast(
     state: &AppState,
-    merged: Merged,
-    after: impl Fn(rappel_core::Result<Deck>) + 'static,
+    done: Done,
+    after: impl Fn(rappel_core::Result<Deck>, &Done) + 'static,
 ) -> adw::Toast {
     let state = state.clone();
-    undo_toast(&merged_text(), move || after(state.unmerge_deck(&merged)))
+    undo_toast(&merged_text(), move || {
+        after(state.unmerge_deck(&done.merged), &done);
+    })
 }
 
-/// What to tell when the Undo failed: a deck took the merged deck's name,
-/// or the deck it went into was deleted since.
-pub fn not_restored_text(source_name: &str, err: &rappel_core::Error) -> String {
-    fill(
-        // Translators: a toast: what is before ":" is its title, the
-        // rest is behind Details. {name} is a deck's name, {error}
-        // why, in English.
-        &gettext("“{name}” could not be restored: {error}"),
-        &[("name", source_name), ("error", &err.to_string())],
-    )
+/// What to tell when the Undo of merging `source` into `target` failed
+/// with `err`, in words where core's error would only give an id: the
+/// deck merged into was deleted since (its delete is undone first), the
+/// merged deck was deleted again, or another deck took its name.
+pub fn not_restored_text(source: &Deck, target: &Deck, err: &Error) -> String {
+    let name = source.name.as_str();
+    match err {
+        Error::DeckNotFound(id) if *id == target.id => fill(
+            // Translators: a toast: what is before ":" is its title, the
+            // rest is behind Details. {name} is the deck that was merged,
+            // {target} the deck it was merged into, which was deleted since.
+            &gettext(
+                "“{name}” could not be restored: “{target}” was deleted since. Undo that first, then try again.",
+            ),
+            &[("name", name), ("target", &target.name)],
+        ),
+        Error::DeckNotFound(_) => fill(
+            // Translators: a toast: what is before ":" is its title, the
+            // rest is behind Details. {name} is a deck's name.
+            &gettext("“{name}” could not be restored: it was deleted again since."),
+            &[("name", name)],
+        ),
+        Error::DuplicateDeckName(_) => fill(
+            // Translators: a toast: what is before ":" is its title, the
+            // rest is behind Details. {name} is a deck's name.
+            &gettext("“{name}” could not be restored: another deck has its name now."),
+            &[("name", name)],
+        ),
+        err => not_restored(name, err),
+    }
 }
 
 #[cfg(test)]
@@ -267,6 +305,39 @@ mod tests {
             body(2, "{target}", "{count}"),
             "Move 2 cards from “{target}” into “{count}” and remove “{target}”?"
         );
+    }
+
+    #[test]
+    fn a_failed_undo_says_why_in_words() {
+        let mut source = deck("s");
+        source.name = "Spanish".to_owned();
+        let mut target = deck("t");
+        target.name = "Languages".to_owned();
+        assert_eq!(
+            not_restored_text(&source, &target, &Error::DeckNotFound("t".to_owned())),
+            "“Spanish” could not be restored: “Languages” was deleted since. \
+             Undo that first, then try again."
+        );
+        assert_eq!(
+            not_restored_text(&source, &target, &Error::DeckNotFound("s".to_owned())),
+            "“Spanish” could not be restored: it was deleted again since."
+        );
+        assert_eq!(
+            not_restored_text(
+                &source,
+                &target,
+                &Error::DuplicateDeckName("Spanish".to_owned())
+            ),
+            "“Spanish” could not be restored: another deck has its name now."
+        );
+        assert_eq!(
+            not_restored_text(&source, &target, &Error::EmptyDeckName),
+            "“Spanish” could not be restored: a deck name cannot be empty"
+        );
+        // No id is ever shown, and names are never read for placeholders.
+        target.name = "{name}".to_owned();
+        let text = not_restored_text(&source, &target, &Error::DeckNotFound("t".to_owned()));
+        assert!(text.contains("“{name}” was deleted") && !text.contains(" t "));
     }
 
     #[test]

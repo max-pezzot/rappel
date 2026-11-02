@@ -1216,11 +1216,20 @@ msgstr "Lecture des paquets impossible : {error}"
 msgid "The decks could not be merged: {error}"
 msgstr "Fusion des paquets impossible : {error}"
 
-#. Translators: a toast: what is before ":" is its title, the rest is behind Details. {name} is a deck's name, {error} why, in English.
+#. Translators: a toast: what is before ":" is its title, the rest is behind Details. {name} is the deck that was merged, {target} the deck it was merged into, which was deleted since.
 #: crates/app/src/dialogs/merge_deck.rs
-#: crates/app/src/pages/decks_page.rs
-msgid "“{name}” could not be restored: {error}"
-msgstr "« {name} » n’a pas pu être restauré : {error}"
+msgid "“{name}” could not be restored: “{target}” was deleted since. Undo that first, then try again."
+msgstr "« {name} » n’a pas pu être restauré : « {target} » a été supprimé depuis. Annulez d’abord cette suppression, puis réessayez."
+
+#. Translators: a toast: what is before ":" is its title, the rest is behind Details. {name} is a deck's name.
+#: crates/app/src/dialogs/merge_deck.rs
+msgid "“{name}” could not be restored: it was deleted again since."
+msgstr "« {name} » n’a pas pu être restauré : il a de nouveau été supprimé depuis."
+
+#. Translators: a toast: what is before ":" is its title, the rest is behind Details. {name} is a deck's name.
+#: crates/app/src/dialogs/merge_deck.rs
+msgid "“{name}” could not be restored: another deck has its name now."
+msgstr "« {name} » n’a pas pu être restauré : un autre paquet porte maintenant son nom."
 
 #: crates/app/src/dialogs/move_card.rs
 msgid "Move Card"
@@ -2641,6 +2650,11 @@ msgstr " "
 msgctxt "decimal separator"
 msgid "."
 msgstr ","
+
+#. Translators: a toast: what is before ":" is its title, the rest is behind Details. {name} is a deck's name, {error} why, in English.
+#: crates/app/src/ui/text.rs
+msgid "“{name}” could not be restored: {error}"
+msgstr "« {name} » n’a pas pu être restauré : {error}"
 
 #. Translators: {count} is a number of cards to review now ("12 due"), shown under a deck's name.
 #: crates/app/src/ui/text.rs

@@ -1214,10 +1214,19 @@ msgstr ""
 msgid "The decks could not be merged: {error}"
 msgstr ""
 
-#. Translators: a toast: what is before ":" is its title, the rest is behind Details. {name} is a deck's name, {error} why, in English.
+#. Translators: a toast: what is before ":" is its title, the rest is behind Details. {name} is the deck that was merged, {target} the deck it was merged into, which was deleted since.
 #: crates/app/src/dialogs/merge_deck.rs
-#: crates/app/src/pages/decks_page.rs
-msgid "“{name}” could not be restored: {error}"
+msgid "“{name}” could not be restored: “{target}” was deleted since. Undo that first, then try again."
+msgstr ""
+
+#. Translators: a toast: what is before ":" is its title, the rest is behind Details. {name} is a deck's name.
+#: crates/app/src/dialogs/merge_deck.rs
+msgid "“{name}” could not be restored: it was deleted again since."
+msgstr ""
+
+#. Translators: a toast: what is before ":" is its title, the rest is behind Details. {name} is a deck's name.
+#: crates/app/src/dialogs/merge_deck.rs
+msgid "“{name}” could not be restored: another deck has its name now."
 msgstr ""
 
 #: crates/app/src/dialogs/move_card.rs
@@ -2638,6 +2647,11 @@ msgstr ""
 #: crates/app/src/ui/text.rs
 msgctxt "decimal separator"
 msgid "."
+msgstr ""
+
+#. Translators: a toast: what is before ":" is its title, the rest is behind Details. {name} is a deck's name, {error} why, in English.
+#: crates/app/src/ui/text.rs
+msgid "“{name}” could not be restored: {error}"
 msgstr ""
 
 #. Translators: {count} is a number of cards to review now ("12 due"), shown under a deck's name.

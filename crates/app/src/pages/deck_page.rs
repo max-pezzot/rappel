@@ -535,8 +535,7 @@ impl DeckPage {
             self,
             async move {
                 // Nothing to put back on close: the page leaves.
-                let Some((source, merged)) = merge_deck::run(&page, &state, &deck.id, || {}).await
-                else {
+                let Some(done) = merge_deck::run(&page, &state, &deck.id, || {}).await else {
                     // The last other deck may have gone since the menu was
                     // built.
                     page.update_can_move();
@@ -545,7 +544,7 @@ impl DeckPage {
                 let Some(window) = page.root().and_downcast::<RappelWindow>() else {
                     return;
                 };
-                window.leave_merged_deck(&page, &state, &source.name, merged);
+                window.leave_merged_deck(&page, &state, done);
             }
         ));
     }

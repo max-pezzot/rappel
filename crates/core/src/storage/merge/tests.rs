@@ -593,10 +593,13 @@ mod identity {
         #[test]
         fn merge_then_unmerge_is_the_identity(
             homes in prop::collection::vec(0..DECKS, CARDS),
-            ops in prop::collection::vec((op(), 0..CARDS, 0_i64..3_000), 0..60),
+            ops in prop::collection::vec((op(), 0..CARDS, -60_i64..3_000), 0..60),
             delete_deck in prop::option::of(0..DECKS),
             pair in (0..DECKS, 0..DECKS),
             probe in 0_i64..40_000,
+            // The merge's clock, from a day before the last write (a clock
+            // that went backwards) to a day after.
+            offset in -DAY_MS..DAY_MS,
         ) {
             let mut store = Store::in_memory();
             store.set_max_new_per_day(9_999).unwrap();
@@ -659,10 +662,27 @@ mod identity {
             let (source, target) = (live[pair.0 % live.len()], live[pair.1 % live.len()]);
             prop_assume!(source != target);
             let before = dump(&store);
+            let source_cards: Vec<String> = store
+                .conn
+                .prepare("SELECT id FROM cards WHERE deck_id = ?1 ORDER BY seq")
+                .unwrap()
+                .query_map([source], |r| r.get(0))
+                .unwrap()
+                .collect::<rusqlite::Result<_>>()
+                .unwrap();
             let now = T0 + probe * 60_000;
             let counts = store.list_decks(now, now).unwrap();
 
-            let merged = store.merge_deck_at(source, target, t + 1).unwrap();
+            let merged = store.merge_deck_at(source, target, t + offset).unwrap();
+
+            // Every card of the source, live and deleted, moved, and no
+            // card is left in it.
+            prop_assert_eq!(&merged.cards, &source_cards);
+            let left: i64 = store
+                .conn
+                .query_row("SELECT count(*) FROM cards WHERE deck_id = ?1", [source], |r| r.get(0))
+                .unwrap();
+            prop_assert_eq!(left, 0);
 
             // The target has what both had.
             let after = store.list_decks(now, now).unwrap();

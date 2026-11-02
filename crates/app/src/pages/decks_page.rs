@@ -21,7 +21,7 @@ use rappel_core::domain::Deck;
 
 use crate::dialogs::deck_name_dialog::{self, Purpose};
 use crate::dialogs::merge_deck;
-use crate::i18n::{fill, gettext};
+use crate::i18n::gettext;
 use crate::pages::{DeckPage, StatsPage};
 use crate::state::AppState;
 use crate::ui::focus::index_after_removal;
@@ -413,35 +413,28 @@ impl DecksPage {
                         }
                     }
                 );
-                let Some((source, merged)) = merge_deck::run(&page, &state, &id, closed).await
-                else {
+                let Some(done) = merge_deck::run(&page, &state, &id, closed).await else {
                     return;
                 };
                 page.reload_or_toast(Focus::Index(index));
                 merged_at.set(Some(index));
-                page.show_merged_toast(&state, &source.name, merged);
+                page.show_merged_toast(&state, done);
             }
         ));
     }
 
-    /// Shows "Decks merged" with Undo, which restores the merged deck
-    /// (named `source_name`) and reads every list again
+    /// Shows "Decks merged" with Undo, which restores the merged deck and
+    /// reads every list again
     /// (`RappelWindow::deck_unmerged`), from whichever page is showing
     /// then. This page is the window's root and lives as long as it, so a
     /// failed Undo is told from here.
-    pub fn show_merged_toast(
-        &self,
-        state: &AppState,
-        source_name: &str,
-        merged: rappel_core::storage::Merged,
-    ) {
+    pub fn show_merged_toast(&self, state: &AppState, done: merge_deck::Done) {
         let window = self
             .root()
             .and_downcast::<RappelWindow>()
             .map(|w| w.downgrade());
-        let source_name = source_name.to_owned();
         let page = self.downgrade();
-        let toast = merge_deck::merged_toast(state, merged, move |result| match result {
+        let toast = merge_deck::merged_toast(state, done, move |result, done| match result {
             Ok(deck) => {
                 if let Some(window) = window.as_ref().and_then(glib::WeakRef::upgrade) {
                     window.deck_unmerged(&deck.id);
@@ -449,7 +442,11 @@ impl DecksPage {
             }
             Err(err) => {
                 if let Some(page) = page.upgrade() {
-                    page.error_toast(&merge_deck::not_restored_text(&source_name, &err));
+                    page.error_toast(&merge_deck::not_restored_text(
+                        &done.source,
+                        &done.target,
+                        &err,
+                    ));
                 }
             }
         });
@@ -493,13 +490,7 @@ impl DecksPage {
         };
         match state.undelete_deck(id) {
             Ok(_) => self.reload_or_toast(Focus::Deck(id)),
-            Err(err) => self.error_toast(&fill(
-                // Translators: a toast: what is before ":" is its title, the
-                // rest is behind Details. {name} is a deck's name, {error}
-                // why, in English.
-                &gettext("“{name}” could not be restored: {error}"),
-                &[("name", name), ("error", &err.to_string())],
-            )),
+            Err(err) => self.error_toast(&crate::ui::text::not_restored(name, &err)),
         }
     }
 

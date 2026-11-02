@@ -57,35 +57,25 @@ pub(crate) fn schedule_table(store: &Store) -> Vec<ScheduleRow> {
 
 /// Every row of every table of `store` (`sqlite_master`'s tables, so the
 /// search index's own tables and `card_schedule` too, and any table a
-/// later migration adds), each row as the debug form of its values (a
-/// float's shortest form that reads back exactly), sorted, with the
-/// schema version: two dumps are equal exactly when the databases hold the
-/// same content.
+/// later migration adds), with the `rowid` of each row of a rowid table,
+/// each row as the debug form of its values (a float's shortest form that
+/// reads back exactly), sorted; then the schema itself (`sqlite_master`'s
+/// type, name and SQL) and its version. Two dumps are equal exactly when
+/// the databases hold the same content, down to their rowids.
 pub(crate) fn dump(store: &Store) -> Vec<(String, Vec<String>)> {
     let conn = &store.conn;
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    let mut tables: Vec<String> = conn
-        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+    let tables: Vec<(String, Option<String>)> = conn
+        .prepare("SELECT name, sql FROM sqlite_master WHERE type = 'table' ORDER BY name")
         .unwrap()
-        .query_map([], |r| r.get(0))
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
         .unwrap()
         .collect::<rusqlite::Result<_>>()
         .unwrap();
-    // A virtual table's rows are in its shadow tables, listed too; its
-    // rowid is read here as well, as nothing else names it.
-    tables.retain(|t| t != "cards_fts");
-    let mut out = vec![("user_version".to_owned(), vec![version.to_string()])];
-    for (name, sql) in tables
-        .iter()
-        .map(|t| (t.clone(), format!("SELECT * FROM \"{t}\"")))
-        .chain([(
-            "cards_fts".to_owned(),
-            "SELECT rowid, * FROM cards_fts".to_owned(),
-        )])
-    {
-        let mut stmt = conn.prepare(&sql).unwrap();
+    let rows_of = |sql: &str| -> Vec<String> {
+        let mut stmt = conn.prepare(sql).unwrap();
         let columns = stmt.column_count();
         let mut rows: Vec<String> = stmt
             .query_map([], |r| {
@@ -98,8 +88,27 @@ pub(crate) fn dump(store: &Store) -> Vec<(String, Vec<String>)> {
             .collect::<rusqlite::Result<_>>()
             .unwrap();
         rows.sort();
+        rows
+    };
+    let mut out = vec![("user_version".to_owned(), vec![version.to_string()])];
+    for (name, sql) in tables {
+        // A virtual table's rowid is read like any other; a table made
+        // WITHOUT ROWID has none.
+        let without_rowid = sql
+            .as_deref()
+            .is_some_and(|sql| sql.to_ascii_uppercase().contains("WITHOUT ROWID"));
+        let select = if without_rowid {
+            format!("SELECT * FROM \"{name}\"")
+        } else {
+            format!("SELECT rowid, * FROM \"{name}\"")
+        };
+        let rows = rows_of(&select);
         out.push((name, rows));
     }
+    out.push((
+        "sqlite_master".to_owned(),
+        rows_of("SELECT type, name, sql FROM sqlite_master"),
+    ));
     out
 }
 

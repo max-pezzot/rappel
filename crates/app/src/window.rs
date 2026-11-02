@@ -495,7 +495,7 @@ impl RappelWindow {
         self.imp().decks_page.deck_restored(source);
     }
 
-    /// After deck page `page`'s deck (named `source_name`) was merged:
+    /// After deck page `page`'s deck was merged (`done`):
     /// shows the deck list's "Decks merged" toast and goes back to the
     /// list, which focuses the row of the deck it went into once shown
     /// (ADR 0066: the merged deck has no page any more).
@@ -503,12 +503,11 @@ impl RappelWindow {
         &self,
         page: &DeckPage,
         state: &AppState,
-        source_name: &str,
-        merged: rappel_core::storage::Merged,
+        done: crate::dialogs::merge_deck::Done,
     ) {
         let decks = &self.imp().decks_page;
-        decks.focus_on_return(&merged.target);
-        decks.show_merged_toast(state, source_name, merged);
+        decks.focus_on_return(&done.target.id);
+        decks.show_merged_toast(state, done);
         nav::pop(page);
     }
 
@@ -812,9 +811,15 @@ mod tests {
             let state = imp.state.get().unwrap().clone();
             let source = page.deck_id().unwrap();
             let target = state.create_deck("Languages").unwrap();
+            let source_deck = state.deck(&source).unwrap();
             let merged = state.merge_deck(&source, &target.id).unwrap();
+            let done = crate::dialogs::merge_deck::Done {
+                source: source_deck,
+                target: target.clone(),
+                merged: merged.clone(),
+            };
 
-            window.leave_merged_deck(&page, &state, "Deck", merged.clone());
+            window.leave_merged_deck(&page, &state, done);
 
             let on_list = || {
                 imp.navigation_view
