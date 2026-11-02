@@ -88,11 +88,11 @@ mod imp {
         #[template_child]
         pub bottom_bar: TemplateChild<adw::Clamp>,
         #[template_child]
-        pub reveal_hint: TemplateChild<gtk::Label>,
+        pub reveal_button: TemplateChild<gtk::Button>,
         #[template_child]
-        pub fail_hint: TemplateChild<gtk::Label>,
+        pub fail_button: TemplateChild<gtk::Button>,
         #[template_child]
-        pub pass_hint: TemplateChild<gtk::Label>,
+        pub pass_button: TemplateChild<gtk::Button>,
         #[template_child]
         pub buttons: TemplateChild<adw::ViewStack>,
         #[template_child]
@@ -179,6 +179,7 @@ mod imp {
             self.parent_constructed();
             let page = self.obj();
             page.setup_keys();
+            page.setup_key_tooltips();
             page.setup_reveal_animation();
             page.setup_short_summary();
             // A grab before the push does nothing, and the navigation view
@@ -319,6 +320,23 @@ pub(crate) fn key_triggers() -> impl Iterator<Item = &'static str> {
     KEYS.iter().map(|(trigger, _)| *trigger)
 }
 
+/// The tooltip of a button that a key also presses: "Pass (2)". `name` is
+/// the button's name without its mnemonic, `key` the key as the user sees
+/// it ("Space").
+fn key_tooltip(name: &str, key: &str) -> String {
+    // Translators: the tooltip of a button that a key also presses.
+    // {name} is the button ("Pass"), {key} the key ("2").
+    i18n::fill(&gettext("{name} ({key})"), &[("name", name), ("key", key)])
+}
+
+/// How GTK labels the first of [`KEYS`] bound to `key` ("Space", "2"), the
+/// way it shows an accelerator in a menu, in the user's language.
+fn key_label(key: Key) -> Option<String> {
+    let (trigger, _) = KEYS.iter().find(|(_, bound)| *bound == key)?;
+    let (keyval, modifiers) = gtk::accelerator_parse(*trigger)?;
+    Some(gtk::accelerator_get_label(keyval, modifiers).to_string())
+}
+
 /// What a key makes the page do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Act {
@@ -434,6 +452,22 @@ impl ReviewPage {
             ));
         }
         self.add_controller(shortcuts);
+    }
+
+    /// Gives Show Answer, Fail and Pass their key in the tooltip (#105),
+    /// as the page binds it: the key's label is the one GTK shows in menus
+    /// (`gtk_accelerator_get_label`), in the user's language.
+    fn setup_key_tooltips(&self) {
+        let imp = self.imp();
+        for (button, name, key) in [
+            (&*imp.reveal_button, gettext("Show Answer"), Key::Space),
+            (&*imp.fail_button, gettext("Fail"), Key::Fail),
+            (&*imp.pass_button, gettext("Pass"), Key::Pass),
+        ] {
+            if let Some(label) = key_label(key) {
+                button.set_tooltip_text(Some(&key_tooltip(&name, &label)));
+            }
+        }
     }
 
     /// Puts the keyboard focus on the card, or on Back to Deck at the end.
@@ -1951,26 +1985,33 @@ mod tests {
         );
     }
 
-    /// The hints under the buttons name keys the page binds to the same act,
-    /// and screen readers skip them.
     #[test]
-    fn the_key_hints_match_the_keys() {
+    fn a_tooltip_names_the_button_and_its_key() {
+        assert_eq!(key_tooltip("Pass", "2"), "Pass (2)");
+        assert_eq!(key_tooltip("Fail", "1"), "Fail (1)");
+        assert_eq!(key_tooltip("Show Answer", "Space"), "Show Answer (Space)");
+        // A name or a key with braces is not read as a placeholder.
+        assert_eq!(key_tooltip("{key}", "{name}"), "{key} ({name})");
+    }
+
+    /// The buttons' tooltips name the keys the page binds to the same act
+    /// (#105), and no hint is left on the page.
+    #[test]
+    fn the_buttons_say_their_keys_in_their_tooltips() {
         crate::testing::with_widgets(|| {
             let page: ReviewPage = glib::Object::new();
             let imp = page.imp();
-            for (hint, trigger, act) in [
-                (&*imp.reveal_hint, "space", Act::Reveal),
-                (&*imp.fail_hint, "1", Act::Grade(Grade::Fail)),
-                (&*imp.pass_hint, "2", Act::Grade(Grade::Pass)),
+            for (button, tooltip, trigger, act) in [
+                (
+                    &*imp.reveal_button,
+                    "Show Answer (Space)",
+                    "space",
+                    Act::Reveal,
+                ),
+                (&*imp.fail_button, "Fail (1)", "1", Act::Grade(Grade::Fail)),
+                (&*imp.pass_button, "Pass (2)", "2", Act::Grade(Grade::Pass)),
             ] {
-                assert_eq!(hint.accessible_role(), gtk::AccessibleRole::Presentation);
-                // The hint shows the key as GTK names it ("space" → "Space").
-                let (key, mods) = gtk::accelerator_parse(trigger).unwrap();
-                assert_eq!(
-                    hint.label(),
-                    gtk::accelerator_get_label(key, mods),
-                    "{trigger}"
-                );
+                assert_eq!(button.tooltip_text().as_deref(), Some(tooltip));
                 let (_, bound) = KEYS.iter().find(|(t, _)| *t == trigger).unwrap();
                 let revealed = act != Act::Reveal;
                 assert_eq!(key_action(*bound, revealed, true), Some(act), "{trigger}");
@@ -1981,6 +2022,9 @@ mod tests {
             key_action(Key::Space, true, true),
             Some(Act::Grade(Grade::Pass))
         );
+        // Nothing under or beside the buttons any more.
+        let blueprint = include_str!("../../data/review_page.blp");
+        assert!(!blueprint.contains("_hint"));
     }
 
     /// GTK has no public getter for an accessible description, so the

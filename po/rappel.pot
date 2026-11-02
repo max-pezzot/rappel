@@ -643,11 +643,6 @@ msgstr ""
 msgid "Press Space"
 msgstr ""
 
-#. Translators: the name of the Space key, shown under Show Answer.
-#: crates/app/data/review_page.blp
-msgid "Space"
-msgstr ""
-
 #: crates/app/data/review_page.blp
 msgid "_Fail"
 msgstr ""
@@ -656,22 +651,12 @@ msgstr ""
 msgid "Press 1"
 msgstr ""
 
-#. Translators: the key that answers Fail; keep it as it is.
-#: crates/app/data/review_page.blp
-msgid "1"
-msgstr ""
-
 #: crates/app/data/review_page.blp
 msgid "_Pass"
 msgstr ""
 
 #: crates/app/data/review_page.blp
 msgid "Press 2 or Space"
-msgstr ""
-
-#. Translators: the key that answers Pass; keep it as it is.
-#: crates/app/data/review_page.blp
-msgid "2"
 msgstr ""
 
 #: crates/app/data/review_page.blp
@@ -715,14 +700,17 @@ msgid "Studying"
 msgstr ""
 
 #: crates/app/data/shortcuts-dialog.blp
+#: crates/app/src/pages/review_page.rs
 msgid "Show Answer"
 msgstr ""
 
 #: crates/app/data/shortcuts-dialog.blp
+#: crates/app/src/pages/review_page.rs
 msgid "Fail"
 msgstr ""
 
 #: crates/app/data/shortcuts-dialog.blp
+#: crates/app/src/pages/review_page.rs
 msgid "Pass"
 msgstr ""
 
@@ -1624,6 +1612,11 @@ msgstr ""
 #. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
 #: crates/app/src/pages/recovery_page.rs
 msgid "Finishing the restore failed: {error}"
+msgstr ""
+
+#. Translators: the tooltip of a button that a key also presses. {name} is the button ("Pass"), {key} the key ("2").
+#: crates/app/src/pages/review_page.rs
+msgid "{name} ({key})"
 msgstr ""
 
 #. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.

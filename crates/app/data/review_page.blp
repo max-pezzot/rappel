@@ -23,7 +23,7 @@ template $RappelReviewPage: Adw.NavigationPage {
     }
 
     // A short window (a phone held sideways) keeps the room for the card:
-    // the key hints go and the bar's margins shrink. The summary is then
+    // the bar's margins shrink. The summary is then
     // `compact` (less spacing) without its icon, so its figures and Back to
     // Deck fit at 360 × 294. A setter can neither add a style class nor
     // unset the icon, so the page does both on `apply` and undoes them on
@@ -34,9 +34,6 @@ template $RappelReviewPage: Adw.NavigationPage {
       condition ("max-height: 400sp")
 
       setters {
-        reveal_hint.visible: false;
-        fail_hint.visible: false;
-        pass_hint.visible: false;
         bottom_bar.margin-top: 6;
         bottom_bar.margin-bottom: 6;
         summary_box.spacing: 24;
@@ -311,9 +308,9 @@ template $RappelReviewPage: Adw.NavigationPage {
       };
 
       // Show Answer, then Fail and Pass, in the same place, so the thumb
-      // stays where it is. Each button has its key in small dimmed text
-      // under it. The hint is hidden from screen readers, which hear the
-      // key in the button's description instead.
+      // stays where it is. Each button's key is in its tooltip, set in the
+      // page (`key_tooltip`; #105), and in its accessible description, which
+      // screen readers hear.
       [bottom]
       Adw.Clamp bottom_bar {
         maximum-size: 420;
@@ -328,36 +325,20 @@ template $RappelReviewPage: Adw.NavigationPage {
           Adw.ViewStackPage {
             name: "reveal";
 
-            child: Gtk.Box {
-              orientation: vertical;
-              spacing: 6;
+            child: Gtk.Button reveal_button {
+              label: _("_Show Answer");
+              use-underline: true;
+              action-name: "review.reveal";
 
-              Gtk.Button {
-                label: _("_Show Answer");
-                use-underline: true;
-                action-name: "review.reveal";
-
-                accessibility {
-                  description: _("Press Space");
-                }
-
-                styles [
-                  "pill",
-                  "suggested-action",
-                  "review-button",
-                ]
+              accessibility {
+                description: _("Press Space");
               }
 
-              Gtk.Label reveal_hint {
-                // Translators: the name of the Space key, shown under Show Answer.
-                label: _("Space");
-                accessible-role: presentation;
-
-                styles [
-                  "caption",
-                  "dimmed",
-                ]
-              }
+              styles [
+                "pill",
+                "suggested-action",
+                "review-button",
+              ]
             };
           }
 
@@ -368,69 +349,35 @@ template $RappelReviewPage: Adw.NavigationPage {
               spacing: 12;
               homogeneous: true;
 
-              Gtk.Box {
-                orientation: vertical;
-                spacing: 6;
+              Gtk.Button fail_button {
+                label: _("_Fail");
+                use-underline: true;
+                action-name: "review.fail";
 
-                Gtk.Button {
-                  label: _("_Fail");
-                  use-underline: true;
-                  action-name: "review.fail";
-
-                  accessibility {
-                    description: _("Press 1");
-                  }
-
-                  styles [
-                    "pill",
-                    "review-button",
-                  ]
+                accessibility {
+                  description: _("Press 1");
                 }
 
-                Gtk.Label fail_hint {
-                  // Translators: the key that answers Fail; keep it as it is.
-                  label: _("1");
-                  accessible-role: presentation;
-
-                  styles [
-                    "caption",
-                    "dimmed",
-                    "numeric",
-                  ]
-                }
+                styles [
+                  "pill",
+                  "review-button",
+                ]
               }
 
-              Gtk.Box {
-                orientation: vertical;
-                spacing: 6;
+              Gtk.Button pass_button {
+                label: _("_Pass");
+                use-underline: true;
+                action-name: "review.pass";
 
-                Gtk.Button {
-                  label: _("_Pass");
-                  use-underline: true;
-                  action-name: "review.pass";
-
-                  accessibility {
-                    description: _("Press 2 or Space");
-                  }
-
-                  styles [
-                    "pill",
-                    "suggested-action",
-                    "review-button",
-                  ]
+                accessibility {
+                  description: _("Press 2 or Space");
                 }
 
-                Gtk.Label pass_hint {
-                  // Translators: the key that answers Pass; keep it as it is.
-                  label: _("2");
-                  accessible-role: presentation;
-
-                  styles [
-                    "caption",
-                    "dimmed",
-                    "numeric",
-                  ]
-                }
+                styles [
+                  "pill",
+                  "suggested-action",
+                  "review-button",
+                ]
               }
             };
           }

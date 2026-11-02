@@ -645,11 +645,6 @@ msgstr "Afficher la _réponse"
 msgid "Press Space"
 msgstr "Appuyez sur Espace"
 
-#. Translators: the name of the Space key, shown under Show Answer.
-#: crates/app/data/review_page.blp
-msgid "Space"
-msgstr "Espace"
-
 #: crates/app/data/review_page.blp
 msgid "_Fail"
 msgstr "R_até"
@@ -658,11 +653,6 @@ msgstr "R_até"
 msgid "Press 1"
 msgstr "Appuyez sur 1"
 
-#. Translators: the key that answers Fail; keep it as it is.
-#: crates/app/data/review_page.blp
-msgid "1"
-msgstr "1"
-
 #: crates/app/data/review_page.blp
 msgid "_Pass"
 msgstr "Réu_ssi"
@@ -670,11 +660,6 @@ msgstr "Réu_ssi"
 #: crates/app/data/review_page.blp
 msgid "Press 2 or Space"
 msgstr "Appuyez sur 2 ou Espace"
-
-#. Translators: the key that answers Pass; keep it as it is.
-#: crates/app/data/review_page.blp
-msgid "2"
-msgstr "2"
 
 #: crates/app/data/review_page.blp
 msgid "_Suspend Card"
@@ -717,14 +702,17 @@ msgid "Studying"
 msgstr "Étude"
 
 #: crates/app/data/shortcuts-dialog.blp
+#: crates/app/src/pages/review_page.rs
 msgid "Show Answer"
 msgstr "Afficher la réponse"
 
 #: crates/app/data/shortcuts-dialog.blp
+#: crates/app/src/pages/review_page.rs
 msgid "Fail"
 msgstr "Raté"
 
 #: crates/app/data/shortcuts-dialog.blp
+#: crates/app/src/pages/review_page.rs
 msgid "Pass"
 msgstr "Réussi"
 
@@ -1627,6 +1615,11 @@ msgstr "La copie en attente n’a pas pu être vérifiée : {error}. Elle est 
 #: crates/app/src/pages/recovery_page.rs
 msgid "Finishing the restore failed: {error}"
 msgstr "Échec de la fin de restauration : {error}"
+
+#. Translators: the tooltip of a button that a key also presses. {name} is the button ("Pass"), {key} the key ("2").
+#: crates/app/src/pages/review_page.rs
+msgid "{name} ({key})"
+msgstr "{name} ({key})"
 
 #. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
 #: crates/app/src/pages/review_page.rs
@@ -2946,3 +2939,12 @@ msgstr "Voyez combien vous avez étudié et ce que vous retenez"
 #: data/io.github.rsmirke.Rappel.metainfo.xml.in
 msgid "Pictures on cards, on a phone"
 msgstr "Des images sur les cartes, sur un téléphone"
+
+#~ msgid "Space"
+#~ msgstr "Espace"
+
+#~ msgid "1"
+#~ msgstr "1"
+
+#~ msgid "2"
+#~ msgstr "2"
