@@ -21,6 +21,7 @@ msgstr ""
 #: crates/app/data/deck_name_dialog.blp
 #: crates/app/data/delete_card_dialog.blp
 #: crates/app/data/import_dialog.blp
+#: crates/app/data/merge_deck_dialog.blp
 #: crates/app/data/restore_dialog.blp
 #: crates/app/data/retention_dialog.blp
 #: crates/app/data/selection_header.blp
@@ -329,6 +330,11 @@ msgstr ""
 msgid "_Statistics"
 msgstr ""
 
+#: crates/app/data/deck_page.blp
+#: crates/app/data/deck_row.blp
+msgid "_Merge Into…"
+msgstr ""
+
 #: crates/app/data/deck_row.blp
 msgid "Deck Actions"
 msgstr ""
@@ -421,6 +427,14 @@ msgstr ""
 
 #: crates/app/data/import_dialog.blp
 msgid "_Import"
+msgstr ""
+
+#: crates/app/data/merge_deck_dialog.blp
+msgid "Merge Deck?"
+msgstr ""
+
+#: crates/app/data/merge_deck_dialog.blp
+msgid "_Merge"
 msgstr ""
 
 #: crates/app/data/preferences_dialog.blp
@@ -1161,6 +1175,51 @@ msgstr ""
 msgid "_Rename"
 msgstr ""
 
+#. Translators: the text of the Merge Deck dialog when the deck has no cards; {source} is the deck being merged, {target} the deck chosen to merge it into. Deck names are shown in quotes.
+#: crates/app/src/dialogs/merge_deck.rs
+msgid "“{source}” has no cards to move into “{target}”. Remove “{source}”?"
+msgstr ""
+
+#. Translators: the text of the Merge Deck dialog; {count} is a number of cards, {source} the deck being merged, {target} the deck chosen to merge it into. Deck names are shown in quotes.
+#: crates/app/src/dialogs/merge_deck.rs
+msgid "Move {count} card from “{source}” into “{target}” and remove “{source}”?"
+msgid_plural "Move {count} cards from “{source}” into “{target}” and remove “{source}”?"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/app/src/dialogs/merge_deck.rs
+msgid "Decks merged"
+msgstr ""
+
+#: crates/app/src/dialogs/merge_deck.rs
+msgid "No other deck to merge it into"
+msgstr ""
+
+#. Translators: the accessible name of the list of decks in the Merge Deck dialog.
+#: crates/app/src/dialogs/merge_deck.rs
+msgid "Merge Into"
+msgstr ""
+
+#. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
+#: crates/app/src/dialogs/merge_deck.rs
+#: crates/app/src/pages/browser_page.rs
+#: crates/app/src/pages/deck_page.rs
+#: crates/app/src/pages/decks_page.rs
+#: crates/app/src/ui/selection.rs
+msgid "The decks could not be read: {error}"
+msgstr ""
+
+#. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
+#: crates/app/src/dialogs/merge_deck.rs
+msgid "The decks could not be merged: {error}"
+msgstr ""
+
+#. Translators: a toast: what is before ":" is its title, the rest is behind Details. {name} is a deck's name, {error} why, in English.
+#: crates/app/src/dialogs/merge_deck.rs
+#: crates/app/src/pages/decks_page.rs
+msgid "“{name}” could not be restored: {error}"
+msgstr ""
+
 #: crates/app/src/dialogs/move_card.rs
 msgid "Move Card"
 msgstr ""
@@ -1217,14 +1276,6 @@ msgstr ""
 #. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
 #: crates/app/src/dialogs/preferences.rs
 msgid "The backup folder could not be opened: {error}"
-msgstr ""
-
-#. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
-#: crates/app/src/pages/browser_page.rs
-#: crates/app/src/pages/deck_page.rs
-#: crates/app/src/pages/decks_page.rs
-#: crates/app/src/ui/selection.rs
-msgid "The decks could not be read: {error}"
 msgstr ""
 
 #. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
@@ -1424,11 +1475,6 @@ msgstr ""
 
 #: crates/app/src/pages/decks_page.rs
 msgid "Deck deleted"
-msgstr ""
-
-#. Translators: a toast: what is before ":" is its title, the rest is behind Details. {name} is a deck's name, {error} why, in English.
-#: crates/app/src/pages/decks_page.rs
-msgid "“{name}” could not be restored: {error}"
 msgstr ""
 
 #. Translators: {error} is why, in English.

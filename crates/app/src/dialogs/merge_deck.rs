@@ -1,0 +1,326 @@
+//! Merge Into… from a deck's ⋮ menu, on the deck list and on the deck page
+//! (#103, ADR 0066): which decks it offers, the dialog that picks one and
+//! says what the merge does, and the Undo toast. Layout in
+//! `data/merge_deck_dialog.blp`. The merge and its undo are core's
+//! `merge_deck` and `unmerge_deck` through `AppState`; where each page puts
+//! the focus afterwards is its own.
+
+use adw::prelude::*;
+use gtk::glib;
+use rappel_core::domain::Deck;
+use rappel_core::storage::Merged;
+
+use crate::i18n::{fill, gettext, ngettext};
+use crate::state::AppState;
+use crate::ui::text::{counted, with_error};
+use crate::ui::toast::{info_toast, show_error, show_toast_from, undo_toast};
+use crate::ui::{dialog, dropdown};
+
+const FILE: &str = "merge_deck_dialog.ui";
+
+/// The decks deck `source` can be merged into: every deck but itself, in
+/// the order given. The one place that decides it, so that phase 3a's
+/// archive slice leaves archived decks out here, for both menus.
+pub fn targets<'a>(decks: &'a [Deck], source: &str) -> Vec<&'a Deck> {
+    decks.iter().filter(|deck| deck.id != source).collect()
+}
+
+/// Whether Merge Into… is enabled for deck `source`: when there is a deck
+/// to merge it into. Otherwise the dialog would have nothing to choose.
+pub fn offered(decks: &[Deck], source: &str) -> bool {
+    !targets(decks, source).is_empty()
+}
+
+/// What the dialog says the merge does. `count` is the source's live
+/// cards (suspended ones included): the deleted ones move too, but the
+/// user no longer sees them, so they are not counted (ADR 0066).
+pub fn body(count: usize, source: &str, target: &str) -> String {
+    let template = if count == 0 {
+        // Translators: the text of the Merge Deck dialog when the deck has
+        // no cards; {source} is the deck being merged, {target} the deck
+        // chosen to merge it into. Deck names are shown in quotes.
+        gettext("“{source}” has no cards to move into “{target}”. Remove “{source}”?")
+    } else {
+        // Translators: the text of the Merge Deck dialog; {count} is a
+        // number of cards, {source} the deck being merged, {target} the
+        // deck chosen to merge it into. Deck names are shown in quotes.
+        counted(
+            &ngettext(
+                "Move {count} card from “{source}” into “{target}” and remove “{source}”?",
+                "Move {count} cards from “{source}” into “{target}” and remove “{source}”?",
+                count,
+            ),
+            count,
+        )
+    };
+    fill(&template, &[("source", source), ("target", target)])
+}
+
+/// The Undo toast's title. Short, so it fits beside Undo at 360 px
+/// (ADR 0058).
+pub fn merged_text() -> String {
+    gettext("Decks merged")
+}
+
+/// What to tell when there is no deck left to merge into (the last other
+/// deck was deleted since the menu was shown).
+pub fn no_other_deck_text() -> String {
+    gettext("No other deck to merge it into")
+}
+
+/// The dialog and its drop-down; `Err` with the first missing object's id,
+/// after logging every missing one.
+pub(crate) fn layout() -> Result<(adw::AlertDialog, gtk::DropDown), &'static str> {
+    let builder = dialog::builder(FILE);
+    let (alert, dropdown) = (
+        dialog::object(&builder, FILE, "merge_deck_dialog"),
+        dialog::object(&builder, FILE, "merge_target_dropdown"),
+    );
+    Ok((alert?, dropdown?))
+}
+
+/// The dialog for merging `source`, with `count` live cards, into one of
+/// `targets` (not empty), the first one chosen. The body follows the
+/// choice. The drop-down has the focus once the dialog shows, at any
+/// window size (`dialog::focus_when_shown`); Cancel is the default
+/// response, so Enter there opens the list and never merges.
+pub fn prepare(
+    source: &Deck,
+    count: usize,
+    targets: &[Deck],
+) -> Option<(adw::AlertDialog, gtk::DropDown)> {
+    let (alert, choice) = layout().ok()?;
+    let names: Vec<String> = targets.iter().map(|deck| deck.name.clone()).collect();
+    dropdown::set_labels(&choice, &names);
+    // A long name ends in "…" on the button; the list shows it whole.
+    dropdown::shrinkable(&choice);
+    // Translators: the accessible name of the list of decks in the Merge
+    // Deck dialog.
+    let label = gettext("Merge Into");
+    choice.update_property(&[gtk::accessible::Property::Label(&label)]);
+    let source_name = source.name.clone();
+    let update = glib::clone!(
+        #[weak]
+        alert,
+        move |choice: &gtk::DropDown| {
+            let target = usize::try_from(choice.selected())
+                .ok()
+                .and_then(|i| names.get(i));
+            if let Some(target) = target {
+                alert.set_body(&body(count, &source_name, target));
+            }
+            alert.set_response_enabled("merge", target.is_some());
+        }
+    );
+    update(&choice);
+    choice.connect_selected_notify(update);
+    dialog::focus_when_shown(&alert, &choice);
+    Some((alert, choice))
+}
+
+/// Asks which of `targets` to merge `source` (with `count` live cards)
+/// into, over `parent`, and returns the deck chosen, or `None` if
+/// cancelled. `on_closed` is called once the dialog has closed: `AdwDialog`
+/// gives the focus back to the widget that had it then, so a page that
+/// moves the focus because of the answer does it again there (as
+/// `browser_dialogs::choose_closing`).
+pub async fn choose_target(
+    parent: &impl IsA<gtk::Widget>,
+    source: &Deck,
+    count: usize,
+    targets: Vec<Deck>,
+    on_closed: impl Fn() + 'static,
+) -> Option<Deck> {
+    let (alert, choice) = prepare(source, count, &targets)?;
+    alert.connect_closed(move |_| on_closed());
+    let response = alert.choose_future(Some(parent)).await;
+    if response != "merge" {
+        return None;
+    }
+    let chosen = usize::try_from(choice.selected()).ok()?;
+    targets.into_iter().nth(chosen)
+}
+
+/// Merge Into… for deck `source_id`, over `page`: reads the decks and the
+/// card count, asks for the target, and merges. Returns the deck merged
+/// (as it was) and the merge, or `None` if there was nothing to do, the
+/// user cancelled, or it failed (after a toast). `on_closed` is as in
+/// [`choose_target`].
+pub async fn run(
+    page: &impl IsA<gtk::Widget>,
+    state: &AppState,
+    source_id: &str,
+    on_closed: impl Fn() + 'static,
+) -> Option<(Deck, Merged)> {
+    let read = state.decks().and_then(|decks| {
+        let count = state.card_count(source_id)?;
+        Ok((decks, count))
+    });
+    let (decks, count) = match read {
+        Ok(read) => read,
+        // Gone meanwhile (another window): its list is rebuilt by that.
+        Err(rappel_core::Error::DeckNotFound(_)) => return None,
+        Err(err) => {
+            // Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
+            let message = with_error(&gettext("The decks could not be read: {error}"), &err);
+            show_error(page, "reading the decks", &message);
+            return None;
+        }
+    };
+    let source = decks.iter().find(|deck| deck.id == source_id)?.clone();
+    let targets: Vec<Deck> = targets(&decks, source_id).into_iter().cloned().collect();
+    if targets.is_empty() {
+        show_toast_from(page, info_toast(&no_other_deck_text()));
+        return None;
+    }
+    let target = choose_target(page, &source, count, targets, on_closed).await?;
+    match state.merge_deck(&source.id, &target.id) {
+        Ok(merged) => Some((source, merged)),
+        Err(err) => {
+            // Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
+            let message = with_error(&gettext("The decks could not be merged: {error}"), &err);
+            show_error(page, "merging decks", &message);
+            None
+        }
+    }
+}
+
+/// The toast "Decks merged" with Undo. Undo undoes `merged` and gives
+/// `after` the result (the source deck, live again); it keeps the state,
+/// not a page, so it works after the page was left.
+pub fn merged_toast(
+    state: &AppState,
+    merged: Merged,
+    after: impl Fn(rappel_core::Result<Deck>) + 'static,
+) -> adw::Toast {
+    let state = state.clone();
+    undo_toast(&merged_text(), move || after(state.unmerge_deck(&merged)))
+}
+
+/// What to tell when the Undo failed: a deck took the merged deck's name,
+/// or the deck it went into was deleted since.
+pub fn not_restored_text(source_name: &str, err: &rappel_core::Error) -> String {
+    fill(
+        // Translators: a toast: what is before ":" is its title, the
+        // rest is behind Details. {name} is a deck's name, {error}
+        // why, in English.
+        &gettext("“{name}” could not be restored: {error}"),
+        &[("name", source_name), ("error", &err.to_string())],
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+
+    fn deck(id: &str) -> Deck {
+        Deck {
+            id: id.to_owned(),
+            name: format!("Deck {id}"),
+            created_at: 0,
+            updated_at: 0,
+        }
+    }
+
+    #[test]
+    fn a_deck_is_never_offered_as_its_own_target() {
+        let decks = [deck("a"), deck("b"), deck("c")];
+        let ids = |source| -> Vec<&str> {
+            targets(&decks, source)
+                .into_iter()
+                .map(|d| d.id.as_str())
+                .collect()
+        };
+        assert_eq!(ids("a"), ["b", "c"]);
+        assert_eq!(ids("c"), ["a", "b"]);
+    }
+
+    #[test]
+    fn the_entry_is_enabled_only_with_another_deck() {
+        assert!(!offered(&[], "a"));
+        assert!(!offered(&[deck("a")], "a"));
+        assert!(offered(&[deck("a"), deck("b")], "a"));
+    }
+
+    #[test]
+    fn the_body_counts_the_cards_and_names_both_decks() {
+        assert_eq!(
+            body(12, "Spanish", "Languages"),
+            "Move 12 cards from “Spanish” into “Languages” and remove “Spanish”?"
+        );
+        assert_eq!(
+            body(1, "Spanish", "Languages"),
+            "Move 1 card from “Spanish” into “Languages” and remove “Spanish”?"
+        );
+        assert_eq!(
+            body(1_200, "A", "B"),
+            "Move 1,200 cards from “A” into “B” and remove “A”?"
+        );
+        assert_eq!(
+            body(0, "Spanish", "Languages"),
+            "“Spanish” has no cards to move into “Languages”. Remove “Spanish”?"
+        );
+        // A name is never read for placeholders.
+        assert_eq!(
+            body(2, "{target}", "{count}"),
+            "Move 2 cards from “{target}” into “{count}” and remove “{target}”?"
+        );
+    }
+
+    #[test]
+    fn the_texts_fit_a_toast() {
+        use crate::ui::toast::{TOAST_FITS, TOAST_FITS_WITH_BUTTON};
+        assert!(merged_text().chars().count() <= TOAST_FITS_WITH_BUTTON);
+        assert!(no_other_deck_text().chars().count() <= TOAST_FITS);
+    }
+
+    /// The dialog: Cancel is the default and closes it, Merge is suggested,
+    /// the body follows the chosen deck, and the drop-down, not a
+    /// response, has the focus at every size, so Enter or Space never
+    /// merges.
+    #[test]
+    fn the_dialog_defaults_to_cancel_and_focuses_the_choice_at_every_size() {
+        crate::testing::with_widgets(|| {
+            let source = deck("s");
+            let targets = [deck("a"), deck("b")];
+            for (w, h) in [(1000, 720), (360, 640), (640, 360)] {
+                let window = adw::Window::new();
+                window.set_default_size(w, h);
+                window.present();
+                crate::testing::settle_until(|| window.is_mapped(), Duration::from_secs(5));
+                let (alert, choice) = prepare(&source, 3, &targets).unwrap();
+                assert_eq!(alert.default_response().as_deref(), Some("cancel"));
+                assert_eq!(alert.close_response(), "cancel");
+                assert_eq!(
+                    alert.response_appearance("merge"),
+                    adw::ResponseAppearance::Suggested
+                );
+                assert_eq!(
+                    alert.body(),
+                    "Move 3 cards from “Deck s” into “Deck a” and remove “Deck s”?"
+                );
+                choice.set_selected(1);
+                assert_eq!(
+                    alert.body(),
+                    "Move 3 cards from “Deck s” into “Deck b” and remove “Deck s”?"
+                );
+                alert.present(Some(&window));
+                let focused = || {
+                    alert
+                        .focus()
+                        .is_some_and(|f| f == choice || f.is_ancestor(&choice))
+                };
+                assert!(
+                    crate::testing::settle_until(focused, Duration::from_secs(5)),
+                    "at {w} × {h}"
+                );
+                crate::testing::settle_until(|| false, Duration::from_millis(300));
+                assert!(focused(), "at {w} × {h}, later");
+                alert.force_close();
+                window.close();
+            }
+        });
+    }
+}

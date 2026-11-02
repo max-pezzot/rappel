@@ -409,6 +409,47 @@ fn bulk_writes_on_five_thousand_cards_are_fast() {
     }
 }
 
+/// Merge Into… on a deck of 10,000 cards, a tenth of them deleted, and its
+/// Undo: one statement each for the cards (ADR 0066), so well under a
+/// second even in a debug build.
+#[test]
+fn merging_a_deck_of_ten_thousand_cards_is_fast() {
+    const MERGED: usize = 10_000;
+    let mut store = Store::in_memory();
+    let source = store.create_deck_at("Source", T0).unwrap().id;
+    let target = store.create_deck_at("Target", T0).unwrap().id;
+    let mut deleted = Vec::new();
+    for i in 0..MERGED {
+        let card = store
+            .add_card_at(&source, &format!("Card {i}"), "back", T0)
+            .unwrap()
+            .id;
+        if i % 10 == 0 {
+            deleted.push(card);
+        }
+    }
+    store.delete_cards_at(&deleted, T0 + 1).unwrap();
+    store.add_card_at(&target, "Own", "back", T0).unwrap();
+    let (merge, merged) = fastest("merge_deck (10,000)", 1, || {
+        store.merge_deck_at(&source, &target, NOW).unwrap()
+    });
+    assert_eq!(
+        (merged.cards.len(), merged.live),
+        (MERGED, MERGED - deleted.len())
+    );
+    assert_eq!(
+        store.card_count(&target).unwrap(),
+        MERGED - deleted.len() + 1
+    );
+    let (unmerge, _) = fastest("unmerge_deck (10,000)", 1, || {
+        store.unmerge_deck(&merged).unwrap()
+    });
+    assert_eq!(store.card_count(&source).unwrap(), MERGED - deleted.len());
+    assert_eq!(store.card_count(&target).unwrap(), 1);
+    assert_cpu_within(merge, ms(MERGE_MS), "merge_deck (10,000)");
+    assert_cpu_within(unmerge, ms(MERGE_MS), "unmerge_deck (10,000)");
+}
+
 /// Entries in the log of `a_card_with_a_long_log_is_fast`'s card.
 const LONG_LOG: usize = 20_000;
 
@@ -653,6 +694,9 @@ const HOSTILE_SEARCH_MS: u64 = 600;
 /// 420 ms (`add_tags_to_cards` of three tags 85 ms, `release_tags` of their
 /// 15,000 links 64 ms, in a debug build).
 const BULK_MS: u64 = 9_000;
+/// A merge or its undo of 10,000 cards (measured about 50 ms each in a
+/// debug build, ADR 0066).
+const MERGE_MS: u64 = 500;
 /// Each read or write of the card with a 20,000-entry log other than the
 /// deck reads, which keep `STUDY_MS` (measured 36 ms; the others at most
 /// 153 ms, for an undo, which replays the log).

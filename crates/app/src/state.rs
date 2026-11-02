@@ -19,7 +19,8 @@ use rappel_core::media::{CleanedUp, MediaRef, TrashTidied, UnusedMedia};
 use rappel_core::scheduling::StudyInput;
 use rappel_core::stats::{CardInfo, DayGrid, Stats};
 use rappel_core::storage::{
-    self, BackupInfo, BrowseQuery, BrowseRow, Moved, OpenWarning, Restored, Scope, Store, TagsAdded,
+    self, BackupInfo, BrowseQuery, BrowseRow, Merged, Moved, OpenWarning, Restored, Scope, Store,
+    TagsAdded,
 };
 
 use crate::clock::{local_day_bounds_ms, local_day_start_ms, local_next_day_start_ms};
@@ -358,6 +359,21 @@ impl AppState {
     /// Undoes [`Self::delete_deck`] (see [`Store::undelete_deck`]).
     pub fn undelete_deck(&self, id: &str) -> rappel_core::Result<Deck> {
         self.0.store.borrow_mut().undelete_deck(id)
+    }
+
+    /// How many live cards a deck has (see [`Store::card_count`]).
+    pub fn card_count(&self, deck_id: &str) -> rappel_core::Result<usize> {
+        self.0.store.borrow().card_count(deck_id)
+    }
+
+    /// Merges a deck into another (see [`Store::merge_deck`]).
+    pub fn merge_deck(&self, source: &str, target: &str) -> rappel_core::Result<Merged> {
+        self.0.store.borrow_mut().merge_deck(source, target)
+    }
+
+    /// Undoes [`Self::merge_deck`] (see [`Store::unmerge_deck`]).
+    pub fn unmerge_deck(&self, merged: &Merged) -> rappel_core::Result<Deck> {
+        self.0.store.borrow_mut().unmerge_deck(merged)
     }
 
     /// The live cards of a deck, oldest first (see [`Store::list_cards`]).

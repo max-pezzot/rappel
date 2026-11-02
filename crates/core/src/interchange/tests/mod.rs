@@ -287,6 +287,7 @@ mod large;
 mod limits;
 mod log_and_tags;
 mod media;
+mod merged;
 mod oracle;
 mod property;
 mod refused;

@@ -14,6 +14,7 @@ crates/app/data/decks_page.blp
 crates/app/data/delete_card_dialog.blp
 crates/app/data/discard_dialog.blp
 crates/app/data/import_dialog.blp
+crates/app/data/merge_deck_dialog.blp
 crates/app/data/preferences_dialog.blp
 crates/app/data/recovery_page.blp
 crates/app/data/restore_dialog.blp
@@ -35,6 +36,7 @@ crates/app/src/dialogs/card_info.rs
 crates/app/src/dialogs/card_info/text.rs
 crates/app/src/dialogs/clean_up.rs
 crates/app/src/dialogs/deck_name_dialog.rs
+crates/app/src/dialogs/merge_deck.rs
 crates/app/src/dialogs/move_card.rs
 crates/app/src/dialogs/preferences.rs
 crates/app/src/pages/browser_page.rs

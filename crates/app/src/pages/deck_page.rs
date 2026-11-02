@@ -25,7 +25,7 @@ use rappel_core::domain::{Card, CardState, Deck, TaggedCard};
 use rappel_core::scheduling::StudyInput;
 
 use crate::dialogs::card_editor::{CardEditor, Saved};
-use crate::dialogs::{card_info, move_card};
+use crate::dialogs::{card_info, merge_deck, move_card};
 use crate::i18n::gettext;
 use crate::pages::{ReviewPage, StatsPage};
 use crate::state::AppState;
@@ -137,6 +137,9 @@ mod imp {
             });
             klass.install_action("deck.statistics", None, |page, _, _| {
                 page.show_statistics();
+            });
+            klass.install_action("deck.merge", None, |page, _, _| {
+                page.merge();
             });
             // Activated by the card rows' menus with the card id.
             rows::install_id_action(klass, "deck.edit-card", super::DeckPage::edit);
@@ -347,14 +350,18 @@ impl DeckPage {
         imp.selection_bar.set_compact(narrow);
     }
 
-    /// Enables the rows' Move to Deck… while another deck exists.
+    /// Enables the rows' Move to Deck… while another deck exists, and the
+    /// Deck Menu's Merge Into… while there is a deck to merge into.
     fn update_can_move(&self) {
         let imp = self.imp();
         let (Some(state), Some(deck)) = (imp.state.get(), imp.deck.get()) else {
             return;
         };
         match state.decks() {
-            Ok(decks) => self.set_can_move(move_card::offered(&decks, Some(&deck.id))),
+            Ok(decks) => {
+                self.set_can_move(move_card::offered(&decks, Some(&deck.id)));
+                self.action_set_enabled("deck.merge", merge_deck::offered(&decks, &deck.id));
+            }
             // The entry keeps its last state; the move itself looks again.
             Err(err) => tracing::warn!("the decks could not be read for Move to Deck: {err}"),
         }
@@ -512,6 +519,35 @@ impl DeckPage {
                 &err,
             ));
         }
+    }
+
+    /// Merge Into… from the Deck Menu: asks for the deck to merge this one
+    /// into and merges at once. The deck is gone then, so the page goes
+    /// back to the deck list, with the focus on the deck it went into; the
+    /// toast's Undo brings it back there (#103, ADR 0066).
+    fn merge(&self) {
+        let imp = self.imp();
+        let (Some(state), Some(deck)) = (imp.state.get().cloned(), imp.deck.get().cloned()) else {
+            return;
+        };
+        glib::spawn_future_local(glib::clone!(
+            #[weak(rename_to = page)]
+            self,
+            async move {
+                // Nothing to put back on close: the page leaves.
+                let Some((source, merged)) = merge_deck::run(&page, &state, &deck.id, || {}).await
+                else {
+                    // The last other deck may have gone since the menu was
+                    // built.
+                    page.update_can_move();
+                    return;
+                };
+                let Some(window) = page.root().and_downcast::<RappelWindow>() else {
+                    return;
+                };
+                window.leave_merged_deck(&page, &state, &source.name, merged);
+            }
+        ));
     }
 
     /// Shows the information of card `id`.
