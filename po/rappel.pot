@@ -1246,6 +1246,11 @@ msgstr ""
 msgid "“{name}” could not be restored: another deck has its name now."
 msgstr ""
 
+#. Translators: a toast: what is before ":" is its title, the rest is behind Details. {name} is a deck's name.
+#: crates/app/src/dialogs/merge_deck.rs
+msgid "“{name}” could not be restored: an archived deck has its name now."
+msgstr ""
+
 #: crates/app/src/dialogs/move_card.rs
 msgid "Move Card"
 msgstr ""
@@ -2320,6 +2325,13 @@ msgctxt "sentence separator"
 msgid " "
 msgstr ""
 
+#. Translators: {count} is a number of the user's archived decks that have the name of a deck of the Anki package.
+#: crates/app/src/transfer/anki_text.rs
+msgid "{count} of them is archived: its new cards are studied once you unarchive it."
+msgid_plural "{count} of them are archived: their new cards are studied once you unarchive them."
+msgstr[0] ""
+msgstr[1] ""
+
 #: crates/app/src/transfer/anki_text.rs
 #: crates/app/src/transfer/text.rs
 msgid "Nothing was imported: everything was already here"
@@ -2336,6 +2348,13 @@ msgstr ""
 #: crates/app/src/transfer/text.rs
 msgid "Import done"
 msgstr ""
+
+#. Translators: after an Anki import; {count} is a number of the user's archived decks that got cards.
+#: crates/app/src/transfer/anki_text.rs
+msgid "Cards went into {count} archived deck"
+msgid_plural "Cards went into {count} archived decks"
+msgstr[0] ""
+msgstr[1] ""
 
 #: crates/app/src/transfer/anki_text.rs
 msgid "Newer Anki package. Export it again in Anki with “Support older Anki versions” checked, then import that file"
@@ -2556,6 +2575,11 @@ msgstr ""
 #. Translators: {name} is the name of one of the user's decks.
 #: crates/app/src/transfer/text.rs
 msgid "The file has another deck named “{name}”"
+msgstr ""
+
+#. Translators: {name} is the name of one of the user's decks, which is archived.
+#: crates/app/src/transfer/text.rs
+msgid "The file has another deck named “{name}”, like your archived deck"
 msgstr ""
 
 #: crates/app/src/transfer/text.rs

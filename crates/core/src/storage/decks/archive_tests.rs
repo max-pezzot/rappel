@@ -94,6 +94,42 @@ fn an_archived_deck_leaves_the_deck_list_and_keeps_its_name_and_cards() {
     assert!(store.card(&new).is_ok());
 }
 
+/// The tags in use, with or without archived decks, and whether any card
+/// is left, archived or not.
+#[test]
+fn tags_in_use_and_live_cards_follow_the_archive() {
+    let Two {
+        mut store,
+        spanish,
+        reviewed,
+        other,
+        ..
+    } = two();
+    store.add_tag(&reviewed, "verbs").unwrap();
+    store.add_tag(&other, "sums").unwrap();
+    let names =
+        |tags: Vec<crate::domain::Tag>| tags.into_iter().map(|t| t.name).collect::<Vec<_>>();
+    store.archive_deck_at(&spanish, T0 + 50).unwrap();
+    assert_eq!(names(store.used_tags().unwrap()), ["sums", "verbs"]);
+    assert_eq!(
+        names(store.used_tags_listed(true).unwrap()),
+        ["sums", "verbs"]
+    );
+    assert_eq!(names(store.used_tags_listed(false).unwrap()), ["sums"]);
+    assert!(store.has_live_cards().unwrap());
+    let mut empty = Store::in_memory();
+    assert!(!empty.has_live_cards().unwrap());
+    let deck = empty.create_deck_at("x", T0).unwrap().id;
+    let card = empty.add_card_at(&deck, "q", "a", T0).unwrap().id;
+    empty.archive_deck_at(&deck, T0).unwrap();
+    assert!(
+        empty.has_live_cards().unwrap(),
+        "an archived deck's card counts"
+    );
+    empty.delete_card(&card).unwrap();
+    assert!(!empty.has_live_cards().unwrap());
+}
+
 #[test]
 fn archived_decks_are_sorted_by_name_and_count_live_cards_only() {
     let mut store = Store::in_memory();

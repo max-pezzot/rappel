@@ -132,6 +132,13 @@ impl ArchivedPage {
             return Ok(());
         };
         let decks = state.archived_decks()?;
+        // A row rebuilt under the focus (an Undo, an import) gives it to
+        // the row now at its place.
+        let focused = imp
+            .rows
+            .borrow()
+            .iter()
+            .position(|(_, button)| button.is_focus());
         imp.archived_list.remove_all();
         let mut rows = Vec::with_capacity(decks.len());
         for archived in decks {
@@ -164,7 +171,29 @@ impl ArchivedPage {
         imp.content_stack
             .set_visible_child_name(if rows.is_empty() { "empty" } else { "list" });
         imp.rows.replace(rows);
+        if let Some(index) = focused {
+            self.focus_index(index);
+        }
         Ok(())
+    }
+
+    /// Deck `id`'s Unarchive button, for tests.
+    #[cfg(test)]
+    pub(crate) fn unarchive_button(&self, id: &str) -> Option<gtk::Button> {
+        self.imp()
+            .rows
+            .borrow()
+            .iter()
+            .find(|(deck, _)| deck == id)
+            .map(|(_, button)| button.clone())
+    }
+
+    /// Focuses deck `id`'s Unarchive button, if the deck is listed.
+    pub fn focus_deck(&self, id: &str) {
+        let rows = self.imp().rows.borrow();
+        if let Some((_, button)) = rows.iter().find(|(deck, _)| deck == id) {
+            button.grab_focus();
+        }
     }
 
     /// Focuses the Unarchive button of the row now at `index`, else the
@@ -215,25 +244,19 @@ impl ArchivedPage {
     }
 }
 
-/// "Deck unarchived" with Undo, which archives deck `id` again and has
-/// every page read its decks again. Keeps the window weakly, never a page:
-/// the toast outlives this one.
+/// "Deck unarchived" with Undo, which archives deck `id` again as Archive
+/// does (`RappelWindow::rearchive_deck`: a page of the deck opened since
+/// is left, the focus goes to the row now at its place). Keeps the window
+/// weakly, never a page: the toast outlives this one.
 fn unarchived_toast(state: &AppState, id: String, window: Option<&RappelWindow>) -> adw::Toast {
     let state = state.clone();
     let window = window.map(glib::object::ObjectExt::downgrade);
     undo_toast(&text::unarchived_toast(), move || {
-        let window = window.as_ref().and_then(glib::WeakRef::upgrade);
-        match state.archive_deck(&id) {
-            Ok(_) => {
-                if let Some(window) = &window {
-                    window.data_changed();
-                }
-            }
-            Err(err) => {
-                if let Some(window) = &window {
-                    show_error(window, "archiving a deck again", &text::not_archived(&err));
-                }
-            }
+        let Some(window) = window.as_ref().and_then(glib::WeakRef::upgrade) else {
+            return;
+        };
+        if let Err(err) = window.rearchive_deck(&state, &id) {
+            show_error(&window, "archiving a deck again", &text::not_archived(&err));
         }
     })
 }

@@ -532,14 +532,16 @@ impl BrowserPage {
         let kept = text::filter_choice(imp.tag_filter.selected(), imp.tags.borrow().len())
             .map(|i| imp.tags.borrow()[i].clone());
         let kept_tag = kept.as_ref().map(|t| t.id.clone());
-        let tags = text::filter_tags(state.used_tags()?, kept);
+        let any_archived = every_deck.iter().any(Deck::is_archived);
+        let show_archived = text::archived_shown(any_archived, imp.archived_filter.selected());
+        // Hidden, archived decks lend the tag filter no tag of their own.
+        let tags = text::filter_tags(state.used_tags_listed(show_archived)?, kept);
         let want_deck = deck_id.map(str::to_owned).or(kept_deck);
 
         imp.quiet.set(true);
-        imp.archived_filter
-            .set_visible(every_deck.iter().any(Deck::is_archived));
+        imp.archived_filter.set_visible(any_archived);
         self.place_archived_filter();
-        let listed = text::filter_decks(&every_deck, self.archived_shown());
+        let listed = text::filter_decks(&every_deck, show_archived);
         dropdown::set_labels(
             &imp.deck_filter,
             &std::iter::once(text::all_decks())
@@ -629,14 +631,7 @@ impl BrowserPage {
         // was left out (a filter, or archived decks hidden); otherwise no
         // rows means no cards.
         let collection_empty = if items.is_empty() && (filtered || !query.include_archived) {
-            state
-                .list_decks(rappel_core::time::now_ms())?
-                .iter()
-                .all(|deck| deck.card_count == 0)
-                && state
-                    .archived_decks()?
-                    .iter()
-                    .all(|deck| deck.card_count == 0)
+            !state.has_live_cards()?
         } else {
             items.is_empty()
         };
@@ -1206,6 +1201,8 @@ mod tests {
             assert_eq!(imp.archived_filter.selected(), 0);
             assert_eq!(shown(&page).len(), 1);
             assert_eq!(entries(&imp.deck_filter), ["All Decks", "Art"]);
+            // Only the archived deck's cards have "algebra".
+            assert_eq!(entries(&imp.tag_filter), ["All Tags"]);
             // Moving needs two decks that are not archived.
             assert!(!page.can_move());
 
@@ -1215,6 +1212,7 @@ mod tests {
                 entries(&imp.deck_filter),
                 ["All Decks", "Art", "\u{2068}Maths\u{2069} (archived)"]
             );
+            assert_eq!(entries(&imp.tag_filter), ["All Tags", "algebra"]);
             imp.deck_filter.set_selected(2);
             let mut listed = shown(&page);
             listed.sort();

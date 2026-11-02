@@ -10,7 +10,7 @@ use rappel_core::storage::Restored;
 
 use crate::dialogs::card_editor::CardEditor;
 use crate::i18n::{fill, gettext};
-use crate::pages::{ArchivedPage, BrowserPage, DeckPage, DecksPage, Recovered};
+use crate::pages::{ArchivedPage, BrowserPage, DeckPage, DecksPage, Recovered, ReviewPage};
 use crate::startup::{Problem, data_folder_line, setting_reset_text, too_new_text};
 use crate::state::AppState;
 use crate::transfer;
@@ -525,6 +525,49 @@ impl RappelWindow {
         nav::pop(page);
     }
 
+    /// Archives deck `id` again: the Undo of "Deck unarchived" (ADR 0068).
+    /// As Archive does, a page of that deck (its deck page, and a study
+    /// session or statistics above it) is left for the deck list, which
+    /// focuses the row now at the deck's place; on the deck list the focus
+    /// goes there at once, and on the Archived Decks page to the deck's
+    /// Unarchive button. Every page reads its decks again.
+    ///
+    /// # Errors
+    /// What [`AppState::archive_deck`] returns; nothing changed then.
+    pub fn rearchive_deck(&self, state: &AppState, id: &str) -> rappel_core::Result<()> {
+        let imp = self.imp();
+        let decks = &imp.decks_page;
+        let open = self.pages().iter().any(|page| {
+            let deck = page
+                .downcast_ref::<DeckPage>()
+                .and_then(DeckPage::deck_id)
+                .or_else(|| {
+                    page.downcast_ref::<ReviewPage>()
+                        .and_then(ReviewPage::deck_id)
+                });
+            deck.as_deref() == Some(id)
+        });
+        state.archive_deck(id)?;
+        // Read while the row is still in the list: it leaves at the next
+        // reload.
+        decks.focus_place_on_return(id);
+        if open {
+            // `shown` focuses the row at the deck's place.
+            imp.navigation_view.pop_to_page(&**decks);
+        } else {
+            decks.deck_left_list();
+        }
+        self.data_changed();
+        if let Some(page) = imp
+            .navigation_view
+            .visible_page()
+            .and_downcast::<ArchivedPage>()
+        {
+            page.focus_deck(id);
+        }
+        Ok(())
+    }
+
     /// Makes the deck list focus deck `id`'s row the next time it shows
     /// (the Archived Decks page going back after its last Unarchive).
     pub fn focus_deck_on_return(&self, id: &str) {
@@ -958,6 +1001,71 @@ mod tests {
             assert_eq!(focused_deck(&window).as_deref(), Some(source.as_str()));
             assert!(!imp.decks_page.archived_row_shown());
             assert_eq!(state.card_count(&source).unwrap(), 2);
+            window.destroy();
+        });
+    }
+
+    /// The Undo of "Deck unarchived" archives as Archive does (ADR 0068):
+    /// the page of the deck, opened since, is left for the deck list, which
+    /// focuses the row now at its place; on the Archived Decks page the
+    /// deck comes back with the focus on its Unarchive button.
+    #[test]
+    fn undoing_an_unarchive_leaves_the_decks_page_and_keeps_the_focus() {
+        use crate::pages::ArchivedPage;
+        crate::testing::with_widgets(|| {
+            let (window, page, _tmp) = reopened_with(2);
+            let imp = window.imp();
+            imp.navigation_view.set_animate_transitions(false);
+            let state = imp.state.get().unwrap().clone();
+            let id = page.deck_id().unwrap();
+            let other = state.create_deck("Languages").unwrap();
+            let zoo = state.create_deck("Zoo").unwrap();
+            state.archive_deck(&zoo.id).unwrap();
+            imp.decks_page.refresh();
+
+            // The deck's page is open: it is left for the deck list.
+            window.rearchive_deck(&state, &id).unwrap();
+            let on_list = || {
+                imp.navigation_view
+                    .visible_page()
+                    .is_some_and(|p| p.is::<DecksPage>())
+            };
+            assert!(crate::testing::settle_until(
+                on_list,
+                Duration::from_secs(5)
+            ));
+            assert!(state.deck(&id).unwrap().is_archived());
+            assert!(crate::testing::settle_until(
+                || focused_deck(&window).as_deref() == Some(other.id.as_str()),
+                Duration::from_secs(5)
+            ));
+            // A second Undo finds it archived already: nothing changes.
+            assert!(matches!(
+                window.rearchive_deck(&state, &id),
+                Err(rappel_core::Error::DeckArchived(_))
+            ));
+
+            // From the Archived Decks page: Unarchive, then its Undo.
+            gtk::prelude::WidgetExt::activate(&*imp.decks_page.imp().archived_row);
+            let archived_page = || {
+                imp.navigation_view
+                    .visible_page()
+                    .and_downcast::<ArchivedPage>()
+            };
+            assert!(crate::testing::settle_until(
+                || archived_page().is_some(),
+                Duration::from_secs(5)
+            ));
+            let archived = archived_page().unwrap();
+            archived.unarchive(&id);
+            assert_eq!(archived.deck_ids(), std::slice::from_ref(&zoo.id));
+            window.rearchive_deck(&state, &id).unwrap();
+            assert_eq!(archived.deck_ids(), [id.clone(), zoo.id.clone()]);
+            let button = archived.unarchive_button(&id).unwrap();
+            assert_eq!(
+                gtk::prelude::RootExt::focus(&window),
+                Some(button.upcast::<gtk::Widget>())
+            );
             window.destroy();
         });
     }

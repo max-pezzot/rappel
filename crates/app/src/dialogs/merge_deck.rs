@@ -244,6 +244,12 @@ pub fn not_restored_text(source: &Deck, target: &Deck, err: &Error) -> String {
             &gettext("“{name}” could not be restored: another deck has its name now."),
             &[("name", name)],
         ),
+        Error::ArchivedDeckName(_) => fill(
+            // Translators: a toast: what is before ":" is its title, the
+            // rest is behind Details. {name} is a deck's name.
+            &gettext("“{name}” could not be restored: an archived deck has its name now."),
+            &[("name", name)],
+        ),
         err => not_restored(name, err),
     }
 }
@@ -347,6 +353,14 @@ mod tests {
                 &Error::DuplicateDeckName("Spanish".to_owned())
             ),
             "“Spanish” could not be restored: another deck has its name now."
+        );
+        assert_eq!(
+            not_restored_text(
+                &source,
+                &target,
+                &Error::ArchivedDeckName("Spanish".to_owned())
+            ),
+            "“Spanish” could not be restored: an archived deck has its name now."
         );
         assert_eq!(
             not_restored_text(&source, &target, &Error::EmptyDeckName),

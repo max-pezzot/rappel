@@ -450,6 +450,18 @@ impl AppState {
         self.0.store.borrow().used_tags()
     }
 
+    /// The tags in use, the cards of archived decks counted only with
+    /// `include_archived` (see [`Store::used_tags_listed`], ADR 0068).
+    pub fn used_tags_listed(&self, include_archived: bool) -> rappel_core::Result<Vec<Tag>> {
+        self.0.store.borrow().used_tags_listed(include_archived)
+    }
+
+    /// Whether any live card is left, archived decks included (see
+    /// [`Store::has_live_cards`]).
+    pub fn has_live_cards(&self) -> rappel_core::Result<bool> {
+        self.0.store.borrow().has_live_cards()
+    }
+
     /// Every tag, unused ones too (see [`Store::tags`]).
     #[cfg(test)]
     pub fn tags(&self) -> rappel_core::Result<Vec<Tag>> {

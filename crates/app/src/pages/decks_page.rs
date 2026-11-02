@@ -386,6 +386,18 @@ impl DecksPage {
         show_toast_from(self, toast);
     }
 
+    /// After a deck left the list from elsewhere (an Undo): if this page
+    /// shows, the row now at its place takes the focus at once
+    /// ([`Self::focus_place_on_return`] noted it); else on the next
+    /// `shown`.
+    pub fn deck_left_list(&self) {
+        if self.is_on_top()
+            && let Some(index) = self.imp().return_index.take()
+        {
+            self.reload_or_toast(Focus::Index(index));
+        }
+    }
+
     /// Makes the row now at deck `id`'s place take the focus the next time
     /// this page shows: deck `id`, whose page is open, is leaving the list
     /// (ADR 0068).

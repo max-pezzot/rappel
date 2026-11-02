@@ -376,7 +376,13 @@ fn an_anki_import_never_archives_and_keeps_an_archived_deck_archived() {
     let mut env = Env::new();
     let lang = env.store.create_deck("lang").unwrap();
     let archived = env.store.archive_deck(&lang.id).unwrap();
-    env.import(&fixture("current.apkg")).unwrap();
+    let plan = env.plan(&fixture("current.apkg")).unwrap();
+    assert_eq!(
+        (plan.summary().existing_decks, plan.summary().archived_decks),
+        (1, 1)
+    );
+    let report = env.import(&fixture("current.apkg")).unwrap();
+    assert_eq!(report.archived_decks, 1);
     assert_eq!(env.store.deck(&lang.id).unwrap(), archived);
     assert_eq!(env.store.list_cards(&lang.id).unwrap().len(), 1);
     let decks = env.store.decks_with_archived().unwrap();

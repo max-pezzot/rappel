@@ -163,6 +163,20 @@ impl Store {
         Ok(decks)
     }
 
+    /// Whether any live card is in a live deck, archived ones included:
+    /// one indexed lookup, for All Cards' empty state (ADR 0068).
+    ///
+    /// # Errors
+    /// SQLite errors.
+    pub fn has_live_cards(&self) -> Result<bool> {
+        Ok(self.conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM cards c JOIN decks d ON d.id = c.deck_id
+                            WHERE c.deleted_at IS NULL AND d.deleted_at IS NULL)",
+            [],
+            |r| r.get(0),
+        )?)
+    }
+
     /// Live deck `id`, archived or not (its `archived_at` says), without
     /// its counts.
     ///
