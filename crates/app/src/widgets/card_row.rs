@@ -138,6 +138,7 @@ mod imp {
             row.connect_compact_notify(super::CardRow::update_pill_count);
             row.update_pill_count();
             row.connect_selecting_notify(super::CardRow::update_selection);
+            row.add_long_press();
             // `gtk_widget_action_set_enabled` (GtkWidget docs): a menu item
             // naming a disabled action is insensitive.
             row.connect_can_move_notify(|row| row.action_set_enabled("row.move", row.can_move()));
@@ -169,7 +170,6 @@ impl CardRow {
         let imp = row.imp();
         imp.browsing.set(true);
         imp.caption_label.set_visible(true);
-        row.add_long_press();
         row
     }
 

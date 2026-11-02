@@ -51,7 +51,7 @@ use crate::window::RappelWindow;
 pub const GROUP: &str = "selection";
 
 /// The actions on the chosen cards, enabled while one is chosen.
-const ON_CHOSEN: [&str; 5] = ["move", "add-tags", "remove-tag", "suspend", "delete"];
+const ON_CHOSEN: [&str; 4] = ["add-tags", "remove-tag", "suspend", "delete"];
 
 /// A list item that can be chosen: All Cards' `BrowseItem` and the deck
 /// page's `CardObject`.
@@ -80,6 +80,8 @@ pub trait SelectionPage: IsA<adw::NavigationPage> + IsA<gtk::Widget> {
     fn list_shown(&self) -> bool;
     /// No row is left: focus the empty state's button.
     fn focus_empty_state(&self);
+    /// Whether another deck exists to move the cards to.
+    fn can_move_cards(&self) -> bool;
 }
 
 /// The page's widgets selection mode works with.
@@ -107,6 +109,9 @@ struct Inner<P: glib::object::ObjectType, T> {
     /// The mode the page shows; [`CardSelection::update`] brings it in
     /// line with the selection.
     shown: Cell<bool>,
+    /// The Undo of the last toast, for the tests to press.
+    #[cfg(test)]
+    last_undo: RefCell<Option<Rc<dyn Fn()>>>,
     item: PhantomData<T>,
 }
 
@@ -142,6 +147,8 @@ impl<P: SelectionPage, T: SelectableCard> CardSelection<P, T> {
             actions: gio::SimpleActionGroup::new(),
             selection: RefCell::default(),
             shown: Cell::new(false),
+            #[cfg(test)]
+            last_undo: RefCell::default(),
             item: PhantomData,
         });
         let selection = Self(inner);
@@ -285,11 +292,19 @@ impl<P: SelectionPage, T: SelectableCard> CardSelection<P, T> {
     }
 
     /// After the list changed: Select is enabled while there is a card to
-    /// choose.
+    /// choose, and a list that became empty ends selection mode, with the
+    /// focus on the empty state's button.
     pub fn list_changed(&self) {
         let empty = self.0.parts.items.n_items() == 0;
         self.set_enabled("choose", !empty);
-        self.update();
+        if empty && self.active() {
+            self.set_active(false);
+            if let Some(page) = self.0.page.upgrade() {
+                page.focus_empty_state();
+            }
+        } else {
+            self.update();
+        }
     }
 
     // --- choosing ---------------------------------------------------------
@@ -424,7 +439,7 @@ impl<P: SelectionPage, T: SelectableCard> CardSelection<P, T> {
             };
             // A button of the mode about to hide must not keep the keyboard:
             // it goes to the Select button that takes its place.
-            let in_mode = within(parts.header.upcast_ref());
+            let in_mode = within(parts.header.upcast_ref()) || within(parts.bar.upcast_ref());
             // Entering the mode hides the page's own header the same way
             // (Ctrl+A does it from anywhere): the keyboard goes to the list,
             // or to Cancel when there is no list to go to.
@@ -454,6 +469,7 @@ impl<P: SelectionPage, T: SelectableCard> CardSelection<P, T> {
         for name in ON_CHOSEN {
             self.set_enabled(name, n > 0);
         }
+        self.set_enabled("move", n > 0 && page.can_move_cards());
         let chosen = self.chosen_items();
         self.set_enabled(
             "reset",
@@ -497,13 +513,7 @@ impl<P: SelectionPage, T: SelectableCard> CardSelection<P, T> {
                 return;
             }
         };
-        let decks: Vec<Deck> = match &self.0.parts.own_deck {
-            Some(own) => move_card::targets(&decks, own)
-                .into_iter()
-                .cloned()
-                .collect(),
-            None => decks,
-        };
+        let decks = move_targets(decks, self.0.parts.own_deck.as_deref());
         if decks.is_empty() {
             show_toast_from(&page, info_toast(&move_card::no_other_deck_text()));
             return;
@@ -515,22 +525,24 @@ impl<P: SelectionPage, T: SelectableCard> CardSelection<P, T> {
             };
             let names: Vec<String> = decks.iter().map(|d| d.name.clone()).collect();
             let body = text::move_body(ids.len());
+            let (refocus, closed) = selection.refocus_when_closed();
             let chosen = browser_dialogs::choose_closing(
                 &page,
                 &gettext("Move Cards"),
                 &body,
                 &gettext("_Move"),
                 &names,
-                || {},
+                closed,
             )
             .await;
             if let Some(deck) = chosen.and_then(|i| decks.get(i)) {
-                selection.run(
+                let target = selection.run(
                     &ids,
                     Bulk::Move {
                         deck_id: deck.id.clone(),
                     },
                 );
+                refocus.replace(target);
             }
         });
     }
@@ -549,12 +561,16 @@ impl<P: SelectionPage, T: SelectableCard> CardSelection<P, T> {
             Vec::new()
         });
         let body = text::add_tags_body(ids.len());
+        let (refocus, closed) = self.refocus_when_closed();
         let weak = Rc::downgrade(&self.0);
-        browser_dialogs::add_tags(&page, &body, all, move |names| {
+        let dialog = browser_dialogs::add_tags(&page, &body, all, move |names| {
             if let Some(selection) = Self::upgrade(&weak) {
-                selection.run(&ids, Bulk::AddTags(names));
+                let target = selection.run(&ids, Bulk::AddTags(names));
+                refocus.replace(target);
             }
-        })
+        })?;
+        dialog.connect_closed(move |_| closed());
+        Some(dialog)
     }
 
     /// Remove Tag…: asks which of the chosen cards' tags to take off them.
@@ -586,19 +602,38 @@ impl<P: SelectionPage, T: SelectableCard> CardSelection<P, T> {
             };
             let names: Vec<String> = tags.iter().map(|t| t.name.clone()).collect();
             let body = text::remove_tag_body(ids.len());
+            let (refocus, closed) = selection.refocus_when_closed();
             let chosen = browser_dialogs::choose_closing(
                 &page,
                 &gettext("Remove Tag"),
                 &body,
                 &gettext("_Remove"),
                 &names,
-                || {},
+                closed,
             )
             .await;
             if let Some(tag) = chosen.and_then(|i| tags.get(i)) {
-                selection.run(&ids, Bulk::RemoveTag(tag.clone()));
+                let target = selection.run(&ids, Bulk::RemoveTag(tag.clone()));
+                refocus.replace(target);
             }
         });
+    }
+
+    /// A dialog gives the keyboard focus back to the widget that had it
+    /// (a button of the action bar, hidden by then) when it closes, after
+    /// its answer (`browser_dialogs::choose_closing`): the focus an action
+    /// set is set again then. Returns where to note that focus, and what to
+    /// call when the dialog has closed.
+    fn refocus_when_closed(&self) -> (Rc<RefCell<Option<FocusTarget>>>, impl Fn() + 'static) {
+        let target: Rc<RefCell<Option<FocusTarget>>> = Rc::default();
+        let weak = Rc::downgrade(&self.0);
+        let noted = Rc::clone(&target);
+        let closed = move || {
+            if let (Some(selection), Some((first, id))) = (Self::upgrade(&weak), noted.take()) {
+                selection.refocus(first, id.as_deref());
+            }
+        };
+        (target, closed)
     }
 
     /// Does `action` on `ids` at once and offers Undo in a toast. Returns
@@ -674,9 +709,11 @@ impl<P: SelectionPage, T: SelectableCard> CardSelection<P, T> {
             .and_downcast::<RappelWindow>()
             .map(|w| w.downgrade());
         let note = done.note.clone();
-        let toast = undo_toast(&done.text.clone(), move || {
-            undo(&state, &done, &weak, window.as_ref());
-        });
+        let title = done.text.clone();
+        let on_undo: Rc<dyn Fn()> = Rc::new(move || undo(&state, &done, &weak, window.as_ref()));
+        #[cfg(test)]
+        self.0.last_undo.replace(Some(Rc::clone(&on_undo)));
+        let toast = undo_toast(&title, move || on_undo());
         show_toast_from(page, toast);
         // Queued after the Undo toast, which has the high priority.
         if let Some(note) = note {
@@ -691,6 +728,15 @@ impl<P: SelectionPage, T: SelectableCard> CardSelection<P, T> {
         }
     }
 
+    /// Presses Undo on the last toast, as the user would, for the tests.
+    #[cfg(test)]
+    pub fn undo_last(&self) {
+        let on_undo = self.0.last_undo.borrow_mut().take();
+        if let Some(on_undo) = on_undo {
+            on_undo();
+        }
+    }
+
     /// The header, for the tests.
     #[cfg(test)]
     pub fn header(&self) -> &SelectionHeader {
@@ -701,6 +747,18 @@ impl<P: SelectionPage, T: SelectableCard> CardSelection<P, T> {
     #[cfg(test)]
     pub fn bar(&self) -> &SelectionBar {
         &self.0.parts.bar
+    }
+}
+
+/// The decks Move… offers: every deck but the page's own (`own_deck`, on a
+/// deck's page; `None` on All Cards, whose cards come from every deck).
+fn move_targets(decks: Vec<Deck>, own_deck: Option<&str>) -> Vec<Deck> {
+    match own_deck {
+        Some(own) => move_card::targets(&decks, own)
+            .into_iter()
+            .cloned()
+            .collect(),
+        None => decks,
     }
 }
 
@@ -745,5 +803,33 @@ fn undo<P: SelectionPage, T>(
                 None => log_failure("a card operation", &message),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn deck(id: &str) -> Deck {
+        Deck {
+            id: id.to_owned(),
+            name: id.to_owned(),
+            created_at: 0,
+            updated_at: 0,
+        }
+    }
+
+    #[test]
+    fn move_offers_every_deck_but_the_pages_own() {
+        let ids = |decks: Vec<Deck>| -> Vec<String> { decks.into_iter().map(|d| d.id).collect() };
+        let decks = vec![deck("a"), deck("b"), deck("c")];
+        assert_eq!(ids(move_targets(decks.clone(), Some("b"))), ["a", "c"]);
+        // All Cards: every deck, its cards come from all of them.
+        assert_eq!(ids(move_targets(decks, None)), ["a", "b", "c"]);
+        // A deck's page with no other deck: nothing to offer.
+        assert_eq!(
+            ids(move_targets(vec![deck("a")], Some("a"))),
+            Vec::<String>::new()
+        );
     }
 }

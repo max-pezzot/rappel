@@ -1,6 +1,7 @@
 //! One deck's page: its cards in a `GtkListView`, or an empty state, with
 //! add, edit, delete and reset progress (each undone from a toast). Layout in
-//! `data/deck_page.blp` (ADR 0013).
+//! `data/deck_page.blp` (ADR 0013). Selection mode, with its header, action
+//! bar and bulk actions, is All Cards' (`ui::selection`, ADR 0065).
 //!
 //! The subtitle and the Study button follow what there is to study. A
 //! one-shot timer re-checks it when the next card becomes due or the next
@@ -29,6 +30,7 @@ use crate::i18n::gettext;
 use crate::pages::{ReviewPage, StatsPage};
 use crate::state::AppState;
 use crate::ui::focus::{self, ShownFocus, index_after_removal};
+use crate::ui::selection::{CardSelection, Parts, SelectionPage};
 use crate::ui::text::due_new_line;
 use crate::ui::text::with_error;
 use crate::ui::toast::{info_toast, log_failure, show_error, show_toast_from, undo_toast};
@@ -54,6 +56,8 @@ mod imp {
     use crate::ui::breakpoint;
     use crate::ui::debounce::Debounce;
     use crate::ui::rows;
+    use crate::ui::selection::CardSelection;
+    use crate::widgets::{CardObject, SelectionBar, SelectionHeader};
 
     #[derive(Debug, Default, gtk::CompositeTemplate, glib::Properties)]
     #[properties(wrapper_type = super::DeckPage)]
@@ -65,6 +69,16 @@ mod imp {
         pub empty_status: TemplateChild<adw::StatusPage>,
         #[template_child]
         pub breakpoint: TemplateChild<adw::Breakpoint>,
+        #[template_child]
+        pub selection_narrow: TemplateChild<adw::Breakpoint>,
+        #[template_child]
+        pub header: TemplateChild<adw::HeaderBar>,
+        #[template_child]
+        pub select_button: TemplateChild<gtk::Button>,
+        #[template_child]
+        pub selection_header: TemplateChild<SelectionHeader>,
+        #[template_child]
+        pub selection_bar: TemplateChild<SelectionBar>,
         #[template_child]
         pub window_title: TemplateChild<adw::WindowTitle>,
         #[template_child]
@@ -90,9 +104,19 @@ mod imp {
         #[property(get, set)]
         pub compact: Cell<bool>,
         /// Another deck exists to move a card to: the rows' Move to
-        /// Deck… is enabled (`move_card::offered`).
+        /// Deck… is enabled (`move_card::offered`), and the action bar's
+        /// Move….
         #[property(get, set)]
         pub can_move: Cell<bool>,
+        /// Cards are being chosen; the rows follow it.
+        #[property(get, set)]
+        pub selecting: Cell<bool>,
+        /// The window is under 500 sp (`selection_narrow` applies): with
+        /// `compact`, Select All and the action bar keep only their icons.
+        pub selection_narrow_on: Cell<bool>,
+        /// Selection mode: the chosen cards, the header, the action bar and
+        /// the bulk actions (`ui::selection`).
+        pub selection: OnceCell<CardSelection<super::DeckPage, CardObject>>,
     }
 
     #[glib::object_subclass]
@@ -102,6 +126,8 @@ mod imp {
         type ParentType = adw::NavigationPage;
 
         fn class_init(klass: &mut Self::Class) {
+            SelectionHeader::ensure_type();
+            SelectionBar::ensure_type();
             klass.bind_template();
             klass.install_action("deck.new-card", None, |page, _, _| {
                 page.new_card();
@@ -124,6 +150,12 @@ mod imp {
             });
             rows::install_id_action(klass, "deck.reset-card", super::DeckPage::reset);
             rows::install_id_action(klass, "deck.card-info", super::DeckPage::card_info);
+            // A long press on a touch screen: start choosing with the card.
+            rows::install_id_action(klass, "deck.select-card", |page, id| {
+                if let Some(selection) = page.imp().selection.get() {
+                    selection.press(id);
+                }
+            });
         }
 
         fn instance_init(obj: &glib::subclass::InitializingObject<Self>) {
@@ -150,7 +182,10 @@ mod imp {
                 page.refresh_new_flags();
                 page.focus_when_shown();
             });
-            page.connect_compact_notify(super::DeckPage::update_study_bar);
+            page.connect_compact_notify(|page| {
+                page.update_study_bar();
+                page.update_selection_compact();
+            });
             // As on All Cards (ADR 0036).
             breakpoint::follow(
                 &self.breakpoint,
@@ -158,6 +193,17 @@ mod imp {
                     #[weak]
                     page,
                     move |compact| page.set_compact(compact)
+                ),
+            );
+            breakpoint::follow(
+                &self.selection_narrow,
+                glib::clone!(
+                    #[weak]
+                    page,
+                    move |narrow| {
+                        page.imp().selection_narrow_on.set(narrow);
+                        page.update_selection_compact();
+                    }
                 ),
             );
         }
@@ -188,12 +234,31 @@ impl DeckPage {
 
         let store = gio::ListStore::new::<CardObject>();
         store.extend_from_slice(&items_of(cards, &new));
+        init_once(
+            &imp.selection,
+            CardSelection::new(
+                &page,
+                state.clone(),
+                Parts {
+                    own_header: imp.header.get().upcast(),
+                    select_button: imp.select_button.get(),
+                    header: imp.selection_header.get(),
+                    bar: imp.selection_bar.get(),
+                    list: imp.card_list.get(),
+                    items: store.clone(),
+                    own_deck: Some(deck.id.clone()),
+                },
+            ),
+        );
         store.connect_items_changed(glib::clone!(
             #[weak]
             page,
             move |_, _, _, _| {
                 page.update_empty_state();
                 page.update_study();
+                // Select follows whether there is a card; an emptied list
+                // ends selection mode.
+                page.selection().list_changed();
             }
         ));
         imp.card_list
@@ -203,11 +268,18 @@ impl DeckPage {
             #[weak]
             page,
             move |_, position| {
+                // In selection mode a click chooses the card.
+                if page.selection().activate(position) {
+                    return;
+                }
                 if let Some(item) = page.item(position) {
                     page.open_editor(Some(&item.card()));
                 }
             }
         ));
+        // Move… follows whether there is another deck.
+        page.connect_can_move_notify(|page| page.selection().update());
+        page.add_escape();
 
         init_once(&imp.state, state);
         init_once(&imp.deck, deck);
@@ -215,7 +287,61 @@ impl DeckPage {
         page.update_empty_state();
         page.update_study();
         page.update_can_move();
+        page.selection().list_changed();
         Ok(page)
+    }
+
+    /// Selection mode. Set in `new`, before anything can ask for it.
+    #[expect(
+        clippy::expect_used,
+        reason = "an invariant: `new` sets the cell before it returns the page"
+    )]
+    fn selection(&self) -> &CardSelection<Self, CardObject> {
+        self.imp()
+            .selection
+            .get()
+            .expect("`DeckPage::new` sets the selection before it returns the page")
+    }
+
+    /// Escape leaves selection mode. Otherwise it is not handled, so the
+    /// navigation view goes back (the page can be popped again then).
+    fn add_escape(&self) {
+        let keys = gtk::EventControllerKey::new();
+        keys.connect_key_pressed(glib::clone!(
+            #[weak(rename_to = page)]
+            self,
+            #[upgrade_or]
+            glib::Propagation::Proceed,
+            move |_, key, _, _| {
+                if key == gtk::gdk::Key::Escape {
+                    page.escape()
+                } else {
+                    glib::Propagation::Proceed
+                }
+            }
+        ));
+        self.add_controller(keys);
+    }
+
+    /// What Escape does: leave selection mode, or nothing.
+    fn escape(&self) -> glib::Propagation {
+        if self.selection().active() {
+            self.selection().set_active(false);
+            glib::Propagation::Stop
+        } else {
+            glib::Propagation::Proceed
+        }
+    }
+
+    /// On a phone (under 500 sp) Select All and the action bar keep only
+    /// their icons, as on All Cards. Under 400 sp the page's own
+    /// breakpoint applies instead of `selection_narrow` (the last one that
+    /// matches does), hence both.
+    fn update_selection_compact(&self) {
+        let imp = self.imp();
+        let narrow = imp.selection_narrow_on.get() || self.compact();
+        imp.selection_header.set_compact(narrow);
+        imp.selection_bar.set_compact(narrow);
     }
 
     /// Enables the rows' Move to Deck… while another deck exists.
@@ -395,9 +521,13 @@ impl DeckPage {
         }
     }
 
-    /// Opens the editor for a new card in this deck.
+    /// Opens the editor for a new card in this deck. Not while cards are
+    /// being chosen (Ctrl+N): the header shows the selection then, and
+    /// Cancel or Escape comes first.
     pub fn new_card(&self) {
-        self.open_editor(None);
+        if !self.selecting() {
+            self.open_editor(None);
+        }
     }
 
     fn edit(&self, id: &str) {
@@ -757,7 +887,14 @@ impl DeckPage {
             .list_tagged_cards(&deck.id)
             .and_then(|cards| Ok((cards, state.new_card_ids(&deck.id)?)))
         {
-            Ok((cards, new)) => store.splice(0, store.n_items(), &items_of(cards, &new)),
+            Ok((cards, new)) => {
+                let items = items_of(cards, &new);
+                // The cards chosen stay chosen if they are still here.
+                if let Some(selection) = imp.selection.get() {
+                    selection.adopt(&items);
+                }
+                store.splice(0, store.n_items(), &items);
+            }
             // Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
             Err(err) => self.error_toast(&with_error(
                 &gettext("The cards could not be read: {error}"),
@@ -826,12 +963,13 @@ impl DeckPage {
     }
 
     /// Reveals the bottom Study bar only on a narrow window over a deck
-    /// with cards (see [`study_bar_shown`]).
+    /// with cards (see [`study_bar_shown`]), and not while cards are being
+    /// chosen, when the action bar is there instead.
     fn update_study_bar(&self) {
         let imp = self.imp();
         let empty = imp.cards.get().is_none_or(|s| s.n_items() == 0);
         imp.study_bar
-            .set_revealed(study_bar_shown(self.compact(), empty));
+            .set_revealed(study_bar_shown(self.compact(), empty) && !self.selecting());
     }
 
     fn item(&self, position: u32) -> Option<CardObject> {
@@ -1134,19 +1272,47 @@ fn insert_in_order(store: &gio::ListStore, item: &CardObject) -> u32 {
 }
 
 /// Builds a [`CardRow`] per visible row, following the page's `compact`,
-/// and points it at its card.
+/// `can-move` and `selecting`, and points it at its card (whose
+/// accessible label it sets, `CardRow::bind_card`).
 fn row_factory(page: &DeckPage) -> gtk::SignalListItemFactory {
     card_row::factory(
         page,
         CardRow::default,
-        &["compact", "can-move"],
-        |row, card: &CardObject, item| {
-            row.bind(card);
-            // Screen readers read the front, the back and the tags, not "row"
-            // (`card_row::text::row_label`).
-            item.set_accessible_label(&card.row_label());
-        },
+        &["compact", "can-move", "selecting"],
+        CardRow::bind_card,
     )
+}
+
+impl SelectionPage for DeckPage {
+    fn selection_mode_changed(&self, active: bool) {
+        // The rows follow it; the action bar takes the Study bar's place.
+        self.set_selecting(active);
+        self.update_study_bar();
+    }
+
+    fn cards_changed(&self) {
+        // Moved and deleted cards leave the list; the counts, the deck list
+        // and All Cards follow.
+        self.reload();
+        let window = self.root().and_downcast::<RappelWindow>();
+        counts_changed(self, window.as_ref());
+    }
+
+    fn reread_cards(&self) {
+        self.reload();
+    }
+
+    fn list_shown(&self) -> bool {
+        self.imp().content_stack.visible_child_name().as_deref() == Some("list")
+    }
+
+    fn focus_empty_state(&self) {
+        self.focus_or_empty_state(None);
+    }
+
+    fn can_move_cards(&self) -> bool {
+        self.can_move()
+    }
 }
 
 #[cfg(test)]
@@ -1155,6 +1321,7 @@ mod tests {
     use rappel_core::scheduling::Due;
 
     use super::*;
+    use crate::ui::selection::Bulk;
 
     fn due(id: &str) -> Due {
         Due {
@@ -1526,6 +1693,320 @@ mod tests {
             undo_reset(&state, &ids[0], &reset, &page.downgrade(), None);
             assert_eq!(state.review_events(&ids[0]).unwrap(), log);
             assert_eq!(state.card_state(&ids[0]).unwrap(), card_state);
+        });
+    }
+
+    // --- selection mode (#104) ---------------------------------------------
+
+    /// `page` in a presented window: in a window that never was, a hidden
+    /// widget stays hidden when shown (observed with GTK 4.24.1), and the
+    /// header of selection mode must show.
+    fn presented(page: &DeckPage) -> gtk::Window {
+        let window = gtk::Window::builder()
+            .default_width(800)
+            .default_height(600)
+            .child(page)
+            .build();
+        window.present();
+        window
+    }
+
+    /// The cards listed, in order.
+    fn listed(page: &DeckPage) -> Vec<String> {
+        let n = page.imp().cards.get().unwrap().n_items();
+        (0..n)
+            .map(|p| page.item(p).unwrap().card().id.clone())
+            .collect()
+    }
+
+    /// The card rows built, wherever they are.
+    fn rows(widget: &gtk::Widget) -> Vec<CardRow> {
+        let mut found: Vec<CardRow> = widget.clone().downcast().into_iter().collect();
+        let mut child = widget.first_child();
+        while let Some(c) = child {
+            found.extend(rows(&c));
+            child = c.next_sibling();
+        }
+        found
+    }
+
+    /// The card whose row has the window's focus.
+    fn focused_card(window: &gtk::Window) -> Option<String> {
+        let focus = gtk::prelude::GtkWindowExt::focus(window)?;
+        let row = focus
+            .first_child()
+            .and_downcast::<CardRow>()
+            .or_else(|| focus.downcast::<CardRow>().ok())?;
+        Some(row.card_id())
+    }
+
+    /// Presses Ctrl+A on the page's controller (`ui::select_all`), as a key
+    /// press that reached the page would. Returns whether it was handled.
+    fn press_ctrl_a(page: &DeckPage) -> bool {
+        use gtk::gdk::ModifierType;
+        let controller = page
+            .observe_controllers()
+            .iter::<glib::Object>()
+            .filter_map(Result::ok)
+            .filter_map(|c| c.downcast::<gtk::EventControllerKey>().ok())
+            .find(|c| c.name().as_deref() == Some(crate::ui::select_all::CONTROLLER_NAME))
+            .expect("the page installs its Ctrl+A controller");
+        controller.emit_by_name::<bool>(
+            "key-pressed",
+            &[&gtk::gdk::Key::a, &0u32, &ModifierType::CONTROL_MASK],
+        )
+    }
+
+    #[test]
+    fn select_cards_enters_selection_mode_and_cancel_or_escape_leaves_it() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, _state, page, ids) = page_of(3);
+            let window = presented(&page);
+            let imp = page.imp();
+            let selection = page.selection();
+            assert!(page.can_pop() && imp.header.is_visible());
+            gtk::prelude::GtkWindowExt::set_focus(&window, Some(&*imp.select_button));
+            imp.select_button.emit_clicked();
+            assert!(page.selecting() && selection.active());
+            assert!(imp.selection_header.is_visible() && !imp.header.is_visible());
+            assert!(selection.bar().is_revealed());
+            assert!(
+                !page.can_pop(),
+                "Escape leaves selection mode, not the page"
+            );
+            assert_eq!(selection.header().title(), "Select Cards");
+            assert!(
+                gtk::prelude::GtkWindowExt::focus(&window)
+                    .is_some_and(|w| w == *imp.card_list || w.is_ancestor(&*imp.card_list)),
+                "the focus went to the list, not nowhere"
+            );
+            // The rows show their check button instead of their menu.
+            let built = rows(page.upcast_ref());
+            assert!(!built.is_empty() && built.iter().all(CardRow::selecting));
+
+            // A click on a row chooses it rather than opening the editor.
+            imp.card_list.emit_by_name::<()>("activate", &[&1u32]);
+            assert!(!imp.editing.get());
+            assert_eq!(selection.chosen_ids(), [ids[1].clone()]);
+            assert_eq!(selection.header().title(), "1 Selected");
+            assert!(page.item(1).unwrap().selected());
+            // Ctrl+N does not open the editor while choosing.
+            page.new_card();
+            assert!(!imp.editing.get());
+
+            imp.selection_header.cancel_button().emit_clicked();
+            assert!(!page.selecting() && !selection.active());
+            assert!(page.can_pop() && imp.header.is_visible());
+            assert!(!imp.selection_header.is_visible());
+            assert!(!page.item(1).unwrap().selected(), "the choice is forgotten");
+
+            // Escape leaves the mode, then is left to the navigation view.
+            // (A long press starts choosing with its card.)
+            page.activate_action("deck.select-card", Some(&ids[0].to_variant()))
+                .unwrap();
+            assert!(selection.active());
+            assert_eq!(selection.chosen_ids(), [ids[0].clone()]);
+            assert_eq!(page.escape(), glib::Propagation::Stop);
+            assert!(!selection.active() && page.can_pop());
+            assert_eq!(page.escape(), glib::Propagation::Proceed);
+            window.destroy();
+        });
+    }
+
+    #[test]
+    fn ctrl_a_chooses_every_card_of_the_deck() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, _state, page, ids) = page_of(3);
+            let window = presented(&page);
+            gtk::prelude::GtkWindowExt::set_focus(&window, Some(&*page.imp().card_list));
+            assert!(press_ctrl_a(&page));
+            let selection = page.selection();
+            assert!(selection.active());
+            assert_eq!(selection.chosen_ids(), ids);
+            assert_eq!(selection.header().title(), "3 Selected");
+            window.destroy();
+
+            // An empty deck: nothing to choose, and Select is disabled.
+            let (_tmp, state) = crate::testing::temporary_state();
+            let deck = state.create_deck("Empty").unwrap();
+            let page = DeckPage::new(state, deck).unwrap();
+            let window = presented(&page);
+            assert!(!page.imp().select_button.is_sensitive());
+            let _ = press_ctrl_a(&page);
+            assert!(!page.selection().active());
+            window.destroy();
+        });
+    }
+
+    #[test]
+    fn each_bulk_action_changes_the_list_and_its_undo_restores_it() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state, page, ids) = page_of(3);
+            let other = state.create_deck("Other").unwrap();
+            page.reload();
+            // Rooted, so the Undo finds the page (as when it is shown).
+            let window = gtk::Window::builder().child(&page).build();
+            let selection = page.selection();
+            let subtitle = || page.imp().window_title.subtitle().to_string();
+            let choose = |chosen: &[&String]| {
+                selection.set_active(true);
+                for id in chosen {
+                    selection.toggle(id);
+                }
+                selection.chosen_ids()
+            };
+
+            // Move: the cards leave the list; Undo brings them back.
+            let chosen = choose(&[&ids[0], &ids[2]]);
+            selection.run(
+                &chosen,
+                Bulk::Move {
+                    deck_id: other.id.clone(),
+                },
+            );
+            assert!(!selection.active(), "selection mode ends");
+            assert_eq!(listed(&page), [ids[1].clone()]);
+            assert_eq!(state.card(&ids[0]).unwrap().deck_id, other.id);
+            assert_eq!(subtitle(), "1 due");
+            selection.undo_last();
+            assert_eq!(listed(&page), ids);
+            assert_eq!(subtitle(), "3 due");
+
+            // Delete.
+            let chosen = choose(&[&ids[1]]);
+            selection.run(&chosen, Bulk::Delete);
+            assert_eq!(listed(&page), [ids[0].clone(), ids[2].clone()]);
+            selection.undo_last();
+            assert_eq!(listed(&page), ids);
+
+            // Suspend, through the action bar's action.
+            choose(&[&ids[0], &ids[1]]);
+            page.activate_action("selection.suspend", None).unwrap();
+            assert!(page.item(0).unwrap().card().suspended);
+            assert!(page.item(1).unwrap().card().suspended);
+            assert_eq!(subtitle(), "1 due");
+            selection.undo_last();
+            assert!(!page.item(0).unwrap().card().suspended);
+            assert_eq!(subtitle(), "3 due");
+
+            // Reset Progress.
+            let chosen = choose(&[&ids[2]]);
+            selection.run(&chosen, Bulk::Reset);
+            assert!(page.item(2).unwrap().is_new());
+            selection.undo_last();
+            assert!(!page.item(2).unwrap().is_new());
+
+            // Add Tags, then Remove Tag.
+            let names = |position: u32| page.item(position).unwrap().tags().clone();
+            let chosen = choose(&[&ids[0], &ids[1]]);
+            selection.run(&chosen, Bulk::AddTags(vec!["exam".to_owned()]));
+            assert_eq!(names(0), ["exam"]);
+            assert_eq!(names(1), ["exam"]);
+            assert_eq!(names(2), Vec::<String>::new());
+            selection.undo_last();
+            assert_eq!(names(0), Vec::<String>::new());
+            selection.run(&chosen, Bulk::AddTags(vec!["exam".to_owned()]));
+            let exam = state.card_tags(&ids[0]).unwrap().remove(0);
+            let chosen = choose(&[&ids[0]]);
+            selection.run(&chosen, Bulk::RemoveTag(exam));
+            assert_eq!(names(0), Vec::<String>::new());
+            assert_eq!(names(1), ["exam"]);
+            selection.undo_last();
+            assert_eq!(names(0), ["exam"]);
+            window.destroy();
+        });
+    }
+
+    #[test]
+    fn after_a_bulk_removal_the_focus_follows_the_list() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, _state, page, ids) = page_of(3);
+            let window = presented(&page);
+            let selection = page.selection();
+            let settle = || {
+                crate::testing::settle_until(|| false, Duration::from_millis(100));
+            };
+            settle();
+            // The middle card goes: the focus is on the one now at its place.
+            selection.set_active(true);
+            selection.toggle(&ids[1]);
+            selection.run(&selection.chosen_ids(), Bulk::Delete);
+            settle();
+            assert_eq!(focused_card(&window), Some(ids[2].clone()));
+            // The last card goes: the focus is on the new last one.
+            selection.set_active(true);
+            selection.toggle(&ids[2]);
+            selection.run(&selection.chosen_ids(), Bulk::Delete);
+            settle();
+            assert_eq!(focused_card(&window), Some(ids[0].clone()));
+            // Every card goes: the empty state, with the focus on Add Card.
+            selection.select_all();
+            selection.run(&selection.chosen_ids(), Bulk::Delete);
+            settle();
+            assert!(!selection.active() && !page.selecting());
+            assert_eq!(
+                page.imp().content_stack.visible_child_name().as_deref(),
+                Some("empty")
+            );
+            assert_eq!(
+                gtk::prelude::GtkWindowExt::focus(&window),
+                Some(page.imp().empty_add_button.get().upcast())
+            );
+            assert!(
+                !page.imp().select_button.is_sensitive(),
+                "nothing to choose"
+            );
+            window.destroy();
+        });
+    }
+
+    #[test]
+    fn move_is_offered_only_with_another_deck() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state, page, ids) = page_of(2);
+            let window = presented(&page);
+            let selection = page.selection();
+            selection.set_active(true);
+            selection.toggle(&ids[0]);
+            let move_button = &selection.bar().buttons()[0];
+            assert!(!move_button.is_sensitive(), "the only deck");
+            state.create_deck("Other").unwrap();
+            page.reload();
+            assert!(move_button.is_sensitive());
+            window.destroy();
+        });
+    }
+
+    #[test]
+    fn the_action_bar_takes_the_study_bars_place() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, _state, page, _) = page_of(2);
+            let bar = || page.imp().study_bar.is_revealed();
+            page.set_compact(true);
+            assert!(bar());
+            page.selection().set_active(true);
+            assert!(!bar() && page.selection().bar().is_revealed());
+            page.selection().set_active(false);
+            assert!(bar());
+        });
+    }
+
+    #[test]
+    fn a_narrow_window_shows_the_selection_buttons_without_words() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, _state, page, _) = page_of(1);
+            let imp = page.imp();
+            assert!(!imp.selection_bar.compact());
+            // Under 500 sp, then under 400 sp, where the page's own
+            // breakpoint applies instead.
+            imp.selection_narrow_on.set(true);
+            page.update_selection_compact();
+            assert!(imp.selection_bar.compact() && imp.selection_header.compact());
+            imp.selection_narrow_on.set(false);
+            page.set_compact(true);
+            assert!(imp.selection_bar.compact() && imp.selection_header.compact());
+            page.set_compact(false);
+            assert!(!imp.selection_bar.compact());
         });
     }
 }

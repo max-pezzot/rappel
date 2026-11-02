@@ -6,13 +6,22 @@ using Adw 1;
 // NavigationPage:title and AdwWindowTitle are plain text.
 template $RappelDeckPage: Adw.NavigationPage {
   // At most three controls per header side (brief): on a narrow window
-  // the deck page header (Back, New Card, title, Study, menu and the
-  // window buttons) does not fit, so Study moves to a bottom bar, as the
-  // HIG's adaptive header bars do. The bin's size request is the
+  // the deck page header (Back, New Card, title, Study, Select, menu and
+  // the window buttons) does not fit, so Study moves to a bottom bar, as
+  // the HIG's adaptive header bars do. The bin's size request is the
   // window's minimum (data/window.blp); AdwBreakpointBin needs one.
   child: Adw.BreakpointBin {
     width-request: 360;
     height-request: 294;
+
+    // A phone: in selection mode Select All and the action bar keep only
+    // their icons, as on All Cards (pages/deck_page.rs follows it and the
+    // breakpoint below). It comes first: when both match, the last one
+    // applies (AdwBreakpointBin docs: "If multiple breakpoints can be used
+    // for the current size, the last one is used").
+    Adw.Breakpoint selection_narrow {
+      condition ("max-width: 500sp")
+    }
 
     Adw.Breakpoint breakpoint {
       condition ("max-width: 400sp")
@@ -30,8 +39,10 @@ template $RappelDeckPage: Adw.NavigationPage {
     }
 
     child: Adw.ToolbarView {
+      // While cards are being chosen the shared header of selection mode
+      // takes its place (ui/selection.rs).
       [top]
-      Adw.HeaderBar {
+      Adw.HeaderBar header {
         title-widget: Adw.WindowTitle window_title {};
 
         [start]
@@ -56,6 +67,19 @@ template $RappelDeckPage: Adw.NavigationPage {
           }
         }
 
+        // Selection mode (HIG, "Selection mode"), as on All Cards; disabled
+        // while the deck has no card.
+        [end]
+        Gtk.Button select_button {
+          icon-name: "selection-mode-symbolic";
+          action-name: "selection.choose";
+          tooltip-text: _("Select Cards");
+
+          accessibility {
+            label: _("Select Cards");
+          }
+        }
+
         // Disabled when nothing is due and no new card is left for today.
         // On a narrow window it moves to the bottom bar.
         [end]
@@ -68,6 +92,13 @@ template $RappelDeckPage: Adw.NavigationPage {
             "suggested-action",
           ]
         }
+      }
+
+      // How many cards are chosen, Select All and Cancel; the page cannot
+      // be popped then, so Back hides.
+      [top]
+      $RappelSelectionHeader selection_header {
+        visible: false;
       }
 
       content: Gtk.Stack content_stack {
@@ -161,6 +192,11 @@ template $RappelDeckPage: Adw.NavigationPage {
           ]
         }
       }
+
+      // The actions on the chosen cards, as on All Cards. The Study bar
+      // above hides while cards are being chosen.
+      [bottom]
+      $RappelSelectionBar selection_bar {}
     };
   };
 }

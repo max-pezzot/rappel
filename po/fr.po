@@ -53,11 +53,13 @@ msgid "Search cards"
 msgstr "Rechercher des cartes"
 
 #: crates/app/data/browser_page.blp
+#: crates/app/data/deck_page.blp
 #: crates/app/src/ui/selection/text.rs
 msgid "Select Cards"
 msgstr "Sélectionner des cartes"
 
 #: crates/app/data/browser_page.blp
+#: crates/app/data/shortcuts-dialog.blp
 msgid "Deck"
 msgstr "Paquet"
 
@@ -815,6 +817,18 @@ msgid "On a tag’s remove button"
 msgstr "Sur le bouton de retrait d’une étiquette"
 
 #: crates/app/data/shortcuts-dialog.blp
+msgid "Select or Deselect Card"
+msgstr "Sélectionner ou désélectionner la carte"
+
+#: crates/app/data/shortcuts-dialog.blp
+msgid "While selecting cards"
+msgstr "Pendant la sélection de cartes"
+
+#: crates/app/data/shortcuts-dialog.blp
+msgid "Stop Selecting"
+msgstr "Arrêter la sélection"
+
+#: crates/app/data/shortcuts-dialog.blp
 msgid "Go to the Card List"
 msgstr "Aller à la liste des cartes"
 
@@ -825,14 +839,6 @@ msgstr "Depuis le champ de recherche"
 #: crates/app/data/shortcuts-dialog.blp
 msgid "Open Card"
 msgstr "Ouvrir la carte"
-
-#: crates/app/data/shortcuts-dialog.blp
-msgid "Select or Deselect Card"
-msgstr "Sélectionner ou désélectionner la carte"
-
-#: crates/app/data/shortcuts-dialog.blp
-msgid "While selecting cards"
-msgstr "Pendant la sélection de cartes"
 
 #: crates/app/data/shortcuts-dialog.blp
 msgid "Stop Selecting or Clear the Search"

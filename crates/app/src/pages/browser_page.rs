@@ -210,6 +210,8 @@ impl BrowserPage {
                 },
             ),
         );
+        // Move… follows whether there is another deck.
+        page.connect_can_move_notify(|page| page.selection().update());
         init_once(&imp.state, state);
         init_once(&imp.items, store);
         page.load_filters(deck_id)?;
@@ -835,6 +837,10 @@ impl SelectionPage for BrowserPage {
 
     fn focus_empty_state(&self) {
         self.leave_search();
+    }
+
+    fn can_move_cards(&self) -> bool {
+        self.can_move()
     }
 }
 
