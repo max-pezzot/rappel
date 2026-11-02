@@ -7,6 +7,7 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Move to Deck…** in each card's ⋮ menu on the deck page and All Cards, and in the review page's Card Menu next to Suspend. It asks for a deck (never the card's own; the entry is disabled when there is no other deck), moves the card at once, and offers Undo ("Card moved"). During review the card leaves the session as with Suspend, nothing is counted as answered, and Undo brings it back as the next card (ADR 0064, #102).
 - **Ctrl+A chooses every card listed on All Cards**, whatever on the page has the keyboard (the list, a filter, the Select button), and starts selecting if you were not. In the search field it still selects the text (ADR 0064, #106).
 
 ### Changed

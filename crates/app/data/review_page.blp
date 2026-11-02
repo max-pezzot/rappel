@@ -409,6 +409,13 @@ menu card_menu {
       action: "review.suspend";
     }
 
+    // Leaves the session like Suspend (ADR 0064); disabled when there is
+    // no other deck (`dialogs::move_card::offered`).
+    item {
+      label: _("_Move to Deck…");
+      action: "review.move";
+    }
+
     item {
       label: _("_Delete Card…");
       accel: "Delete";

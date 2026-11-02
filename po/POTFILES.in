@@ -33,6 +33,7 @@ crates/app/src/dialogs/card_info.rs
 crates/app/src/dialogs/card_info/text.rs
 crates/app/src/dialogs/clean_up.rs
 crates/app/src/dialogs/deck_name_dialog.rs
+crates/app/src/dialogs/move_card.rs
 crates/app/src/dialogs/preferences.rs
 crates/app/src/pages/browser_page.rs
 crates/app/src/pages/browser_page/text.rs

@@ -19,7 +19,7 @@ use rappel_core::domain::{Card, Deck, Tag};
 use rappel_core::storage::BrowseQuery;
 
 use crate::dialogs::card_editor::{CardEditor, Saved};
-use crate::dialogs::{browser_dialogs, card_info};
+use crate::dialogs::{browser_dialogs, card_info, move_card};
 use crate::state::AppState;
 use crate::ui::focus::index_after_removal;
 use crate::ui::text::one_line;
@@ -105,6 +105,10 @@ mod imp {
         /// Cards are being chosen; the rows follow it.
         #[property(get, set)]
         pub selecting: Cell<bool>,
+        /// There are two decks or more, so any card has another deck to move
+        /// to: the rows' Move to Deck… is enabled (`move_card::offered`).
+        #[property(get, set)]
+        pub can_move: Cell<bool>,
         pub state: OnceCell<AppState>,
         pub items: OnceCell<gio::ListStore>,
         pub selection: RefCell<Selection>,
@@ -146,6 +150,7 @@ mod imp {
             rows::install_id_action(klass, "browser.reset-card", |page, id| {
                 page.run_on(id, super::Bulk::Reset);
             });
+            rows::install_id_action(klass, "browser.move-card", super::BrowserPage::move_card);
             rows::install_id_action(klass, "browser.delete-card", |page, id| {
                 page.run_on(id, super::Bulk::Delete);
             });
@@ -604,7 +609,7 @@ impl BrowserPage {
         card_row::factory(
             self,
             CardRow::for_browser,
-            &["compact", "selecting"],
+            &["compact", "selecting", "can-move"],
             CardRow::bind_browse,
         )
     }
@@ -651,6 +656,7 @@ impl BrowserPage {
                 .and_then(|id| tags.iter().position(|t| &t.id == id)),
         ));
         imp.quiet.set(false);
+        self.set_can_move(move_card::offered(&decks, None));
         imp.decks.replace(decks);
         imp.tags.replace(tags);
         Ok(())
@@ -1109,6 +1115,56 @@ impl BrowserPage {
     fn suspend_selected(&self) {
         let suspend = self.suspend_choice() == SuspendChoice::Suspend;
         self.run_selected(Bulk::Suspend(suspend));
+    }
+
+    /// A card's menu: Move to Deck… for one card. Its own deck is not
+    /// offered (`move_card::targets`); the move and its Undo are the bulk
+    /// action's.
+    fn move_card(&self, id: &str) {
+        let Some(from) = self
+            .position(id)
+            .and_then(|p| self.item(p))
+            .map(|item| item.row().card.deck_id.clone())
+        else {
+            return;
+        };
+        let targets: Vec<Deck> = move_card::targets(&self.imp().decks.borrow(), &from)
+            .into_iter()
+            .cloned()
+            .collect();
+        if targets.is_empty() {
+            show_toast_from(self, info_toast(&move_card::no_other_deck_text()));
+            return;
+        }
+        let id = id.to_owned();
+        let first = self.position(&id);
+        glib::spawn_future_local(glib::clone!(
+            #[weak(rename_to = page)]
+            self,
+            async move {
+                // The dialog gives the focus back to the widget that had it
+                // (a row's menu button, bound to another card by then) when
+                // it closes, after the answer: `run` focuses again then.
+                let moved = std::rc::Rc::new(std::cell::Cell::new(false));
+                let closed = glib::clone!(
+                    #[weak]
+                    page,
+                    #[strong]
+                    moved,
+                    #[strong]
+                    id,
+                    move || {
+                        if moved.get() {
+                            page.refocus(first, Some(&id));
+                        }
+                    }
+                );
+                if let Some(deck) = move_card::choose_deck(&page, targets, closed).await {
+                    page.run_on(&id, Bulk::Move { deck_id: deck.id });
+                    moved.set(true);
+                }
+            }
+        ));
     }
 
     fn move_selected(&self) {
@@ -1703,6 +1759,43 @@ mod tests {
             );
             assert!(!page.selecting());
             assert_eq!(page.chosen_ids().len(), 0);
+        });
+    }
+
+    #[test]
+    fn a_card_menu_offers_move_to_deck_with_two_decks_or_more() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state, ids, _) = state_with_cards();
+            let page = page_over(&state, None);
+            assert!(page.can_move());
+
+            // One deck: nowhere to move a card to.
+            let (_tmp, one) = crate::testing::temporary_state();
+            let deck = one.create_deck("Only").unwrap();
+            one.add_card_with_tags(&deck.id, "q", "a", &[]).unwrap();
+            let page = page_over(&one, None);
+            assert!(!page.can_move());
+            // A second deck, then an import or a change elsewhere.
+            one.create_deck("Second").unwrap();
+            page.reload_all();
+            assert!(page.can_move());
+
+            // The menu's move goes through the bulk action: the card is in
+            // the other deck, with the same Undo.
+            let art = state
+                .decks()
+                .unwrap()
+                .into_iter()
+                .find(|d| d.name == "Art")
+                .unwrap();
+            let page = page_over(&state, None);
+            page.run_on(
+                &ids[0],
+                Bulk::Move {
+                    deck_id: art.id.clone(),
+                },
+            );
+            assert_eq!(state.card(&ids[0]).unwrap().deck_id, art.id);
         });
     }
 
