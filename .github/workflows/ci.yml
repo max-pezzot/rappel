@@ -52,7 +52,9 @@ jobs:
           # dies of SIGPIPE, and under bash's `-o pipefail` (which GitHub sets)
           # the negated pipeline would then read as "no code file", skipping
           # the gate on a long list of code files.
-          others=$(grep -v -E '^(docs/|\.claude/)|^[^/]+\.md$' <<<"$files" || true)
+          # grep exits 1 when no line is left (docs only): accepted. Any
+          # other failure stops this job, and then the gate runs.
+          others=$(grep -v -E '^(docs/|\.claude/)|^[^/]+\.md$' <<<"$files") || [ $? -eq 1 ]
           code=true
           if [ -n "$files" ] && [ -z "$others" ] \
             && ! grep -q -x 'CHANGELOG.md' <<<"$files"; then
