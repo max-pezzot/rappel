@@ -14,6 +14,9 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 - **The review page has no key hints under its buttons.** The Show Answer, Fail and Pass buttons say their key in their tooltip ("Pass (2)", "Fail (1)", "Show Answer (Space)"), and still in their accessible description; the Keyboard Shortcuts dialog is unchanged (ADR 0064, #105).
 - Roadmap (SPEC §4, §5): phase 3a, organising and studying, ends in 0.4.0; phase 3b, publishing (a Snap, a self-hosted Flatpak, the finished metainfo and icon), ends in 1.0. 0.2.0 and 0.3.0 are not released as stable.
 
+### Fixed
+- **A Markdown table's border hugs its columns.** On a wide window a small table's border stretched across the whole card with an empty strip inside it; the grid is now as wide as its columns and sits at the start, and a table wider than the window still scrolls sideways (ADR 0019, #32).
+
 ### Security
 - `pulldown-cmark` updated to 0.13.6 for RUSTSEC-2026-0414 and RUSTSEC-2026-0433. Rappel never enabled wikilinks, so it was not affected (#108).
 
