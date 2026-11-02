@@ -323,13 +323,16 @@ impl DeckPage {
         self.add_controller(keys);
     }
 
-    /// What Escape does: leave selection mode, or nothing.
+    /// What Escape does: leave selection mode, or nothing (All Cards'
+    /// `escape_action`, with no search to clear).
     fn escape(&self) -> glib::Propagation {
-        if self.selection().active() {
-            self.selection().set_active(false);
-            glib::Propagation::Stop
-        } else {
-            glib::Propagation::Proceed
+        use crate::ui::selection::text::{EscapeAction, escape_action};
+        match escape_action(self.selection().active(), false) {
+            EscapeAction::LeaveSelection => {
+                self.selection().set_active(false);
+                glib::Propagation::Stop
+            }
+            EscapeAction::ClearSearch | EscapeAction::Nothing => glib::Propagation::Proceed,
         }
     }
 
@@ -888,12 +891,9 @@ impl DeckPage {
             .and_then(|cards| Ok((cards, state.new_card_ids(&deck.id)?)))
         {
             Ok((cards, new)) => {
-                let items = items_of(cards, &new);
-                // The cards chosen stay chosen if they are still here.
-                if let Some(selection) = imp.selection.get() {
-                    selection.adopt(&items);
-                }
-                store.splice(0, store.n_items(), &items);
+                // The cards chosen stay chosen if they are still here
+                // (`ui::selection` follows the list's changes).
+                store.splice(0, store.n_items(), &items_of(cards, &new));
             }
             // Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
             Err(err) => self.error_toast(&with_error(
@@ -2007,6 +2007,91 @@ mod tests {
             assert!(imp.selection_bar.compact() && imp.selection_header.compact());
             page.set_compact(false);
             assert!(!imp.selection_bar.compact());
+        });
+    }
+
+    /// Every item shows whether its card is chosen.
+    fn ticks_match(page: &DeckPage) {
+        let chosen = page.selection().chosen_ids();
+        let n = page.imp().cards.get().unwrap().n_items();
+        for p in 0..n {
+            let item = page.item(p).unwrap();
+            let id = item.card().id.clone();
+            assert_eq!(item.selected(), chosen.contains(&id), "card {p}");
+        }
+    }
+
+    /// A row replaced while cards are chosen (here by the Undo of a card
+    /// menu's Suspend) shows its card chosen: the controller follows the
+    /// list, not the page.
+    #[test]
+    fn a_row_replaced_while_choosing_keeps_its_tick() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state, page, ids) = page_of(3);
+            let window = presented(&page);
+            page.activate_action("deck.suspend-card", Some(&ids[1].to_variant()))
+                .unwrap();
+            gtk::prelude::GtkWindowExt::set_focus(&window, Some(&*page.imp().card_list));
+            assert!(press_ctrl_a(&page));
+            assert_eq!(page.selection().chosen_ids().len(), 3);
+            // The "Card suspended" toast's Undo.
+            undo_suspend(&state, &ids[1], true, &page.downgrade(), None);
+            assert!(!page.item(1).unwrap().card().suspended);
+            ticks_match(&page);
+            assert!(page.item(1).unwrap().selected());
+            // A card that leaves the list behind the page's back is no
+            // longer chosen.
+            state.delete_card(&ids[0]).unwrap();
+            page.reload();
+            assert_eq!(page.selection().chosen_ids().len(), 2);
+            assert_eq!(page.selection().header().title(), "2 Selected");
+            ticks_match(&page);
+            window.destroy();
+        });
+    }
+
+    #[test]
+    fn a_long_press_while_choosing_chooses_or_drops_the_card() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, _state, page, ids) = page_of(2);
+            let press = |id: &String| {
+                page.activate_action("deck.select-card", Some(&id.to_variant()))
+                    .unwrap();
+            };
+            press(&ids[0]);
+            assert_eq!(page.selection().chosen_ids(), [ids[0].clone()]);
+            press(&ids[1]);
+            assert_eq!(page.selection().chosen_ids(), ids);
+            press(&ids[0]);
+            assert_eq!(page.selection().chosen_ids(), [ids[1].clone()]);
+            assert!(page.selection().active(), "dropping a card keeps the mode");
+        });
+    }
+
+    /// A page under another one does not take the keyboard focus when its
+    /// list empties (here behind its back, then read again).
+    #[test]
+    fn a_page_under_another_does_not_take_the_focus() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state, page, ids) = page_of(1);
+            let view = adw::NavigationView::new();
+            let window = gtk::Window::builder().child(&view).build();
+            window.present();
+            view.push(&page);
+            let top_button = gtk::Button::with_label("On top");
+            let top = adw::NavigationPage::new(&top_button, "Top");
+            view.push(&top);
+            page.selection().set_active(true);
+            page.selection().toggle(&ids[0]);
+            top_button.grab_focus();
+            state.delete_card(&ids[0]).unwrap();
+            page.reload();
+            assert!(!page.selection().active(), "the empty list ends the mode");
+            assert_eq!(
+                gtk::prelude::GtkWindowExt::focus(&window),
+                Some(top_button.upcast())
+            );
+            window.destroy();
         });
     }
 }

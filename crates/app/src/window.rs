@@ -420,6 +420,11 @@ impl RappelWindow {
             browser.focus_search();
             return;
         } else if let Some(deck) = page.downcast_ref::<DeckPage>() {
+            // Not while cards are being chosen, as on All Cards
+            // (`BrowserPage::focus_search`): Cancel or Escape comes first.
+            if deck.selecting() {
+                return;
+            }
             deck.deck_id()
         } else if page.is::<DecksPage>() {
             None
@@ -720,6 +725,30 @@ mod tests {
                 .ancestor(gtk::ListView::static_type())
                 .expect("a card of the list has the focus");
             assert!(list.is_ancestor(&page));
+            window.destroy();
+        });
+    }
+
+    /// Ctrl+F does not open All Cards over a deck page whose cards are
+    /// being chosen, as it does not leave All Cards' selection.
+    #[test]
+    fn search_waits_while_a_deck_pages_cards_are_chosen() {
+        crate::testing::with_widgets(|| {
+            let (window, page, _tmp) = reopened_with(2);
+            page.activate_action("selection.choose", None).unwrap();
+            assert!(page.selecting());
+            window.search();
+            let visible = window.imp().navigation_view.visible_page();
+            assert_eq!(visible, Some(page.clone().upcast()));
+            page.activate_action("selection.cancel", None).unwrap();
+            window.search();
+            assert!(
+                window
+                    .imp()
+                    .navigation_view
+                    .visible_page()
+                    .is_some_and(|p| p.is::<BrowserPage>())
+            );
             window.destroy();
         });
     }

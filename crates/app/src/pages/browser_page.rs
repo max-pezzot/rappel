@@ -29,7 +29,8 @@ use crate::window::RappelWindow;
 
 pub mod text;
 
-use text::{Empty, EscapeAction};
+use crate::ui::selection::text::{EscapeAction, escape_action};
+use text::Empty;
 
 mod imp {
     use std::cell::{Cell, OnceCell, RefCell};
@@ -400,13 +401,13 @@ impl BrowserPage {
         self.add_controller(keys);
     }
 
-    /// What Escape does in the list (see [`text::escape_action`]).
+    /// What Escape does in the list (see [`escape_action`]).
     fn escape(&self) -> glib::Propagation {
         // Read first: the actions below borrow the selection again, and a
         // `Ref` kept in the `match` scrutinee would still be alive in them.
         let selecting = self.selection().active();
         let filtered = text::is_filtered(&self.query());
-        match text::escape_action(selecting, filtered) {
+        match escape_action(selecting, filtered) {
             EscapeAction::LeaveSelection => {
                 self.selection().set_active(false);
                 glib::Propagation::Stop
@@ -541,8 +542,6 @@ impl BrowserPage {
         let query = self.query();
         let rows = state.browse(&query, rappel_core::time::now_ms())?;
         let items: Vec<BrowseItem> = rows.into_iter().map(BrowseItem::new).collect();
-        // The cards chosen stay chosen if they are still listed.
-        self.selection().adopt(&items);
         store.splice(0, store.n_items(), &items);
         let filtered = text::is_filtered(&query);
         // Whether there is any card at all, whatever the filters: read only
@@ -1086,6 +1085,57 @@ mod tests {
             let page = page_over(&state, Some(&maths));
             assert_eq!(shown(&page).len(), 3);
             assert!(text::is_filtered(&page.query()));
+        });
+    }
+
+    #[test]
+    fn move_is_disabled_with_one_deck() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state) = crate::testing::temporary_state();
+            let deck = state.create_deck("Only").unwrap();
+            let id = state
+                .add_card_with_tags(&deck.id, "q", "a", &[])
+                .unwrap()
+                .card
+                .id;
+            let page = page_over(&state, None);
+            // Rooted: a button follows its action's state only then.
+            let window = gtk::Window::builder().child(&page).build();
+            page.selection().set_active(true);
+            page.selection().toggle(&id);
+            let move_button = &page.selection().bar().buttons()[0];
+            assert!(!move_button.is_sensitive(), "nowhere to move to");
+            state.create_deck("Second").unwrap();
+            page.reload_all();
+            // Still chosen: the list was read again.
+            assert_eq!(page.selection().chosen_ids(), [id]);
+            assert!(move_button.is_sensitive());
+            window.destroy();
+        });
+    }
+
+    /// A filter that leaves no card ends selection mode and puts the
+    /// focus on the status page's button.
+    #[test]
+    fn a_filter_that_empties_the_list_ends_selection_mode() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state, ids, _) = state_with_cards();
+            let page = page_over(&state, None);
+            let window = gtk::Window::builder().child(&page).build();
+            window.present();
+            let imp = page.imp();
+            page.selection().set_active(true);
+            page.selection().toggle(&ids[0]);
+            gtk::prelude::GtkWindowExt::set_focus(&window, Some(&*imp.state_filter));
+            // Suspended: no card is.
+            imp.state_filter.set_selected(4);
+            assert_eq!(imp.empty_page.title(), "No Results Found");
+            assert!(!page.selecting() && !page.selection().active());
+            assert_eq!(
+                gtk::prelude::GtkWindowExt::focus(&window),
+                Some(imp.empty_button.get().upcast())
+            );
+            window.destroy();
         });
     }
 

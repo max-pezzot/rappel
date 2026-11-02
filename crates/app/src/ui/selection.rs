@@ -162,6 +162,7 @@ impl<P: SelectionPage, T: SelectableCard> CardSelection<P, T> {
             }
         });
         selection.add_space();
+        selection.follow_items();
         selection.update();
         selection
     }
@@ -280,15 +281,48 @@ impl<P: SelectionPage, T: SelectableCard> CardSelection<P, T> {
             .scroll_to(position, gtk::ListScrollFlags::FOCUS, None);
     }
 
-    /// Before the page puts `items` in its list (read again): the cards
-    /// chosen stay chosen if they are still listed, and the items show it.
-    pub fn adopt(&self, items: &[T]) {
-        let ids: Vec<String> = items.iter().map(SelectableCard::card_id).collect();
-        let mut selection = self.0.selection.borrow_mut();
-        selection.retain(ids.iter().map(String::as_str));
-        for (item, id) in items.iter().zip(&ids) {
-            item.set_chosen(selection.contains(id));
-        }
+    /// Keeps the items in line with the choice whatever changes the list,
+    /// so no page can forget it: an item put in the list (read again, or a
+    /// row replaced after a suspend, a reset, an edit or an Undo) shows
+    /// whether its card is chosen, and the cards that left the list are no
+    /// longer chosen. `GListModel::items-changed` is emitted after the
+    /// change, with the position and how many items left and came
+    /// (`GListModel` docs), so the new items are in place.
+    fn follow_items(&self) {
+        let weak = Rc::downgrade(&self.0);
+        self.0
+            .parts
+            .items
+            .connect_items_changed(move |items, position, removed, added| {
+                let Some(selection) = Self::upgrade(&weak) else {
+                    return;
+                };
+                if removed > 0 {
+                    let ids = selection.ids();
+                    selection
+                        .0
+                        .selection
+                        .borrow_mut()
+                        .retain(ids.iter().map(String::as_str));
+                }
+                for p in position..position + added {
+                    if let Some(item) = items.item(p).and_downcast::<T>() {
+                        item.set_chosen(selection.is_chosen(&item.card_id()));
+                    }
+                }
+            });
+    }
+
+    /// Whether the page is the one the navigation view shows (or is in no
+    /// navigation view): only then may it move the keyboard focus, which a
+    /// page under another one would take from it.
+    fn page_shown(&self) -> bool {
+        let Some(page) = self.0.page.upgrade() else {
+            return false;
+        };
+        page.ancestor(adw::NavigationView::static_type())
+            .and_downcast::<adw::NavigationView>()
+            .is_none_or(|view| view.visible_page().as_ref() == Some(page.upcast_ref()))
     }
 
     /// After the list changed: Select is enabled while there is a card to
@@ -299,7 +333,9 @@ impl<P: SelectionPage, T: SelectableCard> CardSelection<P, T> {
         self.set_enabled("choose", !empty);
         if empty && self.active() {
             self.set_active(false);
-            if let Some(page) = self.0.page.upgrade() {
+            if self.page_shown()
+                && let Some(page) = self.0.page.upgrade()
+            {
                 page.focus_empty_state();
             }
         } else {
@@ -387,12 +423,13 @@ impl<P: SelectionPage, T: SelectableCard> CardSelection<P, T> {
         self.update();
     }
 
-    /// A long press on a row: start choosing with this card.
+    /// A long press on a row: start choosing with this card, or, while
+    /// choosing, choose or drop it (as a tap does).
     pub fn press(&self, id: &str) {
         if !self.active() {
             self.set_active(true);
-            self.toggle(id);
         }
+        self.toggle(id);
     }
 
     /// A row was activated (a click, Enter): in selection mode it is chosen
@@ -686,6 +723,9 @@ impl<P: SelectionPage, T: SelectableCard> CardSelection<P, T> {
         let (Some(position), Some(id)) = (first, first_id) else {
             return;
         };
+        if !self.page_shown() {
+            return;
+        }
         if let Some(still) = self.position(id) {
             self.focus(still);
             return;

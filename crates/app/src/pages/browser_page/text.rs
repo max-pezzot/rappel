@@ -158,7 +158,8 @@ pub fn filters_shown(empty: Empty) -> bool {
 /// modifiers.
 pub const TO_LIST_KEY: gtk::gdk::Key = gtk::gdk::Key::Down;
 
-/// The key [`escape_action`] is about, whatever the modifiers.
+/// The key `ui::selection::text::escape_action` is about, whatever the
+/// modifiers.
 pub const ESCAPE_KEY: gtk::gdk::Key = gtk::gdk::Key::Escape;
 
 /// Whether a key pressed in the list or the status page goes into the
@@ -204,27 +205,6 @@ pub fn types_into_search(
         return true;
     }
     key.to_unicode().is_some_and(|c| !c.is_control())
-}
-
-/// What Escape does while the focus is in the list.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EscapeAction {
-    LeaveSelection,
-    ClearSearch,
-    Nothing,
-}
-
-/// Escape first leaves the selection mode (the mode you are in), then
-/// clears the search and filters. In the search entry, the entry's own
-/// `stop-search` clears the text first.
-pub fn escape_action(selecting: bool, filtered: bool) -> EscapeAction {
-    if selecting {
-        EscapeAction::LeaveSelection
-    } else if filtered {
-        EscapeAction::ClearSearch
-    } else {
-        EscapeAction::Nothing
-    }
 }
 
 /// Which entry of a filter drop-down (entry 0 is "All …") names an item:
@@ -465,13 +445,6 @@ mod tests {
         assert!(types_into_search(Key::BackSpace, none, false, false, false));
         assert!(!types_into_search(Key::BackSpace, none, false, true, false));
         assert!(!types_into_search(Key::BackSpace, none, true, false, false));
-    }
-
-    #[test]
-    fn escape_leaves_the_selection_before_it_clears_the_search() {
-        assert_eq!(escape_action(true, true), EscapeAction::LeaveSelection);
-        assert_eq!(escape_action(false, true), EscapeAction::ClearSearch);
-        assert_eq!(escape_action(false, false), EscapeAction::Nothing);
     }
 
     #[test]

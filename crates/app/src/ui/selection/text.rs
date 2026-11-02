@@ -300,9 +300,39 @@ pub fn partial_undo_text(done: usize, total: usize) -> Option<String> {
     })
 }
 
+/// What Escape does on a page that lists cards (All Cards, a deck's
+/// page), shared so both leave selection mode the same way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EscapeAction {
+    LeaveSelection,
+    ClearSearch,
+    Nothing,
+}
+
+/// Escape first leaves the selection mode (the mode you are in), then
+/// clears the search and filters (All Cards; a deck's page has none, so
+/// `filtered` is `false` there). In All Cards' search entry, the entry's
+/// own `stop-search` clears the text first.
+pub fn escape_action(selecting: bool, filtered: bool) -> EscapeAction {
+    if selecting {
+        EscapeAction::LeaveSelection
+    } else if filtered {
+        EscapeAction::ClearSearch
+    } else {
+        EscapeAction::Nothing
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn escape_leaves_the_selection_before_it_clears_the_search() {
+        assert_eq!(escape_action(true, true), EscapeAction::LeaveSelection);
+        assert_eq!(escape_action(false, true), EscapeAction::ClearSearch);
+        assert_eq!(escape_action(false, false), EscapeAction::Nothing);
+    }
 
     #[test]
     fn the_title_counts_the_chosen_cards() {
