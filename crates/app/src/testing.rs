@@ -85,9 +85,45 @@ pub fn with_gtk<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T 
         if !gtk::is_initialized() && !crate::i18n::tests::real_gettext() {
             gtk::disable_setlocale();
         }
+        if !gtk::is_initialized() && x11_only(std::env::var_os("DISPLAY").as_deref()) {
+            // `xvfb-run` sets DISPLAY but leaves WAYLAND_DISPLAY, and GTK
+            // prefers Wayland: the tests then ran on the desktop's
+            // compositor (their windows on the maintainer's screen), where
+            // a text-input event for an input method context already
+            // freed aborts the binary (`gtkimcontextwayland.c`,
+            // `translate_purpose`: "code should not be reached", seen in
+            // GTK 4.20; earlier SIGSEGVs, ADR 0024). Before GDK opens a
+            // display, it is told to use X11 only
+            // (`gdk_set_allowed_backends`, "must be called before
+            // gdk_display_open()").
+            gtk::gdk::set_allowed_backends("x11");
+        }
         gtk::init().expect("GTK needs a display for this test; run it under `xvfb-run -a`");
+        // The input method is GTK's own, never the session's (IBus over
+        // D-Bus, or Wayland's text input): their replies come back after a
+        // test has destroyed its window, and IBus then reads the freed
+        // surface (`gdk_x11_surface_get_xid` from `libim-ibus.so`, a
+        // SIGSEGV in every run once the tests drew on X11). The
+        // `gtk-im-module` setting picks the module for every text widget
+        // made after it (GtkSettings docs); CI has neither, so the tests
+        // see what CI sees (ADR 0024, amended).
+        if let Some(settings) = gtk::Settings::default()
+            && settings.gtk_im_module().as_deref() != Some(SIMPLE_IM)
+        {
+            settings.set_gtk_im_module(Some(SIMPLE_IM));
+        }
         f()
     })
+}
+
+/// GTK's own input method, which talks to no other process.
+const SIMPLE_IM: &str = "gtk-im-context-simple";
+
+/// Whether the tests' GTK is held to X11: whenever an X display is named
+/// (`xvfb-run`, CI, or a desktop's Xwayland), so they never run on a
+/// Wayland compositor (see [`with_gtk`], ADR 0024).
+fn x11_only(display: Option<&std::ffi::OsStr>) -> bool {
+    display.is_some_and(|d| !d.is_empty())
 }
 
 /// Like [`with_gtk`], with libadwaita started and the app's resources (the
@@ -549,4 +585,44 @@ fn a_cpu_clock_that_does_not_move_is_not_trusted() {
         cpu_time_between(at(None, None), at(None, None), ms(7)),
         ms(7)
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use gtk::prelude::*;
+
+    use super::*;
+
+    #[test]
+    fn an_x_display_holds_gtk_to_x11() {
+        assert!(x11_only(Some(std::ffi::OsStr::new(":99"))));
+        assert!(!x11_only(Some(std::ffi::OsStr::new(""))));
+        assert!(!x11_only(None));
+    }
+
+    /// Under `xvfb-run` (or CI) the tests draw on X11, even when the
+    /// session around them has a Wayland compositor (ADR 0024).
+    #[test]
+    fn the_tests_draw_on_x11_when_an_x_display_is_named() {
+        let named = x11_only(std::env::var_os("DISPLAY").as_deref());
+        let backend = with_gtk(|| {
+            gtk::gdk::Display::default()
+                .map(|display| display.type_().name().to_owned())
+                .unwrap_or_default()
+        });
+        if named {
+            assert_eq!(backend, "GdkX11Display");
+        }
+    }
+
+    /// Text widgets in the tests use GTK's own input method (ADR 0024).
+    #[test]
+    fn the_tests_use_gtks_own_input_method() {
+        let module = with_gtk(|| {
+            gtk::Settings::default()
+                .and_then(|settings| settings.gtk_im_module())
+                .map(|m| m.to_string())
+        });
+        assert_eq!(module.as_deref(), Some(SIMPLE_IM));
+    }
 }
