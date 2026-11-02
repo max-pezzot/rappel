@@ -7,7 +7,7 @@ App name: **Rappel**. App ID: `io.github.rsmirke.Rappel`. Licence: **GPL-3.0-or-
 - Crates: `rappel-core` (`crates/core`, library) and `rappel` (`crates/app`, GTK binary).
 - Data directory: `~/.local/share/rappel/`. Debug builds use `~/.local/share/rappel-dev/` so development never touches real data. Both can be overridden with the `RAPPEL_DATA_DIR` environment variable.
 
-v0 is released as 0.1.0: decks, plain-text cards, review with Fail/Pass, FSRS, SQLite. Phase 1 of the roadmap (§4), text only, reached its beta, 0.2.0-beta.1. Phase 2, media and mobile, ending in 0.3.0, is done pending the maintainer's checks and **in beta** (0.3.0-beta.1, not tagged yet). Done so far: export / import (§4.1), Markdown rendering on the review page, math rendered with RaTeX (§4.2, ADR 0021), editing the card on screen during review (part of §4.5), the Markdown editor with live preview (§4.4), the settings with their Preferences dialog (§4.8, ADR 0027; the rest of the polish is still to come), undo and reset in the review log with their UI (ADR 0028, 0030; Ctrl+Z on the review page, Reset Progress in the card menu), tags (ADR 0029, 0031: the field in the editor and the tags on the deck page), export format version 2 (§4.1), the statistics and card information in core (§4.7, ADR 0032), and their pages (ADR 0033: Statistics from the main menu and each deck's ⋮ menu, Card Information from each card's ⋮ menu and the review header), the search index, suspension and bulk writes in core (ADR 0035), the All Cards page (ADR 0036), suspend and delete during review (ADR 0037), and the missing features: the keyboard shortcuts dialog, the About dialog and the remembered window size and deck (ADR 0039), the UI overhaul (ADR 0040–0046), the second clean-up (ADR 0047, 0048), time bounds robust under load (ADR 0049), hardening round 2 (ADR 0050) and Add Tags with suggestions (ADR 0051). Phase 2: the phase 1 questions are done (ADR 0052: Reset This Setting for a damaged setting, a restore keeps a waiting restore copy, suggestions offer only tags in use), the streaming import (ADR 0053), and the media store in core (ADR 0054: content-addressed files, `media:` references, media in the export and the import), and images (§4.3, ADR 0055: decoded by glycin in a separate process, sandboxed where the system allows, drawn in the card and opened at full size, added in the editor by Insert Image…, paste and drag and drop), and audio (§4.9, ADR 0056: played by GTK's GStreamer media stream from bytes checked as plain audio over the whole file, only on a press or R, added by Insert Audio… and drag and drop; GStreamer limited to an allow-list of plugins, ADR 0062), and removing unused media (ADR 0057: Clean Up Media in Preferences moves the files no card uses to a dated trash, brought back when a restore, an import or a card uses them again, and purged after 30 days unless a backup uses them), and phone and touch (ADR 0058: every screen audited at 360 × 640 and 640 × 360, primary touch targets of 44 px or more and libadwaita's sizes elsewhere, tag names readable without hovering, no gesture grades, the focused field kept above the on-screen keyboard, short toasts with their details a tap away), and translation (ADR 0059: gettext with every user string marked, plurals, numbers and dates in the user's language, a French catalog awaiting the maintainer's proofreading), and the desktop integration drafts (ADR 0060: a `.desktop` entry, AppStream metainfo with the releases and store screenshots, placeholder icons, in `data/`, validated and kept in step with the code by the tests; packaging itself is phase 3), and the Anki import (§4.11, ADR 0061: `.apkg` and `.colpkg`, legacy and current, each card a plain card with its tags, media and review history, and a report of what is left out), and the third clean-up and hardening round (ADR 0062: GStreamer limited to an allow-list of plugins, an MP3 played without its tags; ADR 0063: image sizes and colour profiles checked before decoding, archive entries stopped at their declared size, a cancellable Anki import, an import's media synced in batches). The product vision below is set by ADR 0034, the roadmap in phases (§4, §5) by ADR 0038.
+v0 is released as 0.1.0: decks, plain-text cards, review with Fail/Pass, FSRS, SQLite. Phase 1 of the roadmap (§4), text only, reached its beta, 0.2.0-beta.1. Phase 2, media and mobile, is done and reached its beta, 0.3.0-beta.1 (tagged). Neither 0.2.0 nor 0.3.0 is released as stable: each phase went on from the previous beta. **Phase 3a**, organising and studying (§4), is in progress and ends in 0.4.0; Phase 3b, publishing, ends in 1.0 (§5). Done so far: export / import (§4.1), Markdown rendering on the review page, math rendered with RaTeX (§4.2, ADR 0021), editing the card on screen during review (part of §4.5), the Markdown editor with live preview (§4.4), the settings with their Preferences dialog (§4.8, ADR 0027; the rest of the polish is still to come), undo and reset in the review log with their UI (ADR 0028, 0030; Ctrl+Z on the review page, Reset Progress in the card menu), tags (ADR 0029, 0031: the field in the editor and the tags on the deck page), export format version 2 (§4.1), the statistics and card information in core (§4.7, ADR 0032), and their pages (ADR 0033: Statistics from the main menu and each deck's ⋮ menu, Card Information from each card's ⋮ menu and the review header), the search index, suspension and bulk writes in core (ADR 0035), the All Cards page (ADR 0036), suspend and delete during review (ADR 0037), and the missing features: the keyboard shortcuts dialog, the About dialog and the remembered window size and deck (ADR 0039), the UI overhaul (ADR 0040–0046), the second clean-up (ADR 0047, 0048), time bounds robust under load (ADR 0049), hardening round 2 (ADR 0050) and Add Tags with suggestions (ADR 0051). Phase 2: the phase 1 questions are done (ADR 0052: Reset This Setting for a damaged setting, a restore keeps a waiting restore copy, suggestions offer only tags in use), the streaming import (ADR 0053), and the media store in core (ADR 0054: content-addressed files, `media:` references, media in the export and the import), and images (§4.3, ADR 0055: decoded by glycin in a separate process, sandboxed where the system allows, drawn in the card and opened at full size, added in the editor by Insert Image…, paste and drag and drop), and audio (§4.9, ADR 0056: played by GTK's GStreamer media stream from bytes checked as plain audio over the whole file, only on a press or R, added by Insert Audio… and drag and drop; GStreamer limited to an allow-list of plugins, ADR 0062), and removing unused media (ADR 0057: Clean Up Media in Preferences moves the files no card uses to a dated trash, brought back when a restore, an import or a card uses them again, and purged after 30 days unless a backup uses them), and phone and touch (ADR 0058: every screen audited at 360 × 640 and 640 × 360, primary touch targets of 44 px or more and libadwaita's sizes elsewhere, tag names readable without hovering, no gesture grades, the focused field kept above the on-screen keyboard, short toasts with their details a tap away), and translation (ADR 0059: gettext with every user string marked, plurals, numbers and dates in the user's language, a French catalog awaiting the maintainer's proofreading), and the desktop integration drafts (ADR 0060: a `.desktop` entry, AppStream metainfo with the releases and store screenshots, placeholder icons, in `data/`, validated and kept in step with the code by the tests; packaging itself is phase 3b), and the Anki import (§4.11, ADR 0061: `.apkg` and `.colpkg`, legacy and current, each card a plain card with its tags, media and review history, and a report of what is left out), and the third clean-up and hardening round (ADR 0062: GStreamer limited to an allow-list of plugins, an MP3 played without its tags; ADR 0063: image sizes and colour profiles checked before decoding, archive entries stopped at their declared size, a cancellable Anki import, an import's media synced in batches). The product vision below is set by ADR 0034, the roadmap in phases (§4, §5) by ADR 0038.
 
 ---
 
@@ -128,7 +128,7 @@ Storage rules:
 
 ## 4. Features
 
-The work is done in three phases, each ending in a release (ADR 0038, amending the order of ADR 0034). Within a phase, items come in the order listed. Sections keep their numbers; the phases give the priority, not the numbering.
+The work is done in phases, each ending in a release (ADR 0038, amending the order of ADR 0034): phases 1, 2 and 3a here, phase 3b in §5. Within a phase, items come in the order listed. Sections keep their numbers; the phases give the priority, not the numbering.
 
 **Phase 1 — text only, ends in v0.2.0.**
 1. *Done:* the editor (§4.4), statistics (§4.7), browser and search (§4.6), suspend and delete during review (§4.5).
@@ -136,7 +136,7 @@ The work is done in three phases, each ending in a release (ADR 0038, amending t
 3. *Done:* UI overhaul (§4.8): a visual pass on every screen, and the accessibility issues.
 4. *Done:* code clean-up and refactor (§4.10).
 5. *Done:* hardening, round 2 (round 1 was ADR 0025; round 2 is ADR 0050).
-6. v0.2.0-beta (0.2.0-beta.1, tagged), then v0.2.0.
+6. v0.2.0-beta (0.2.0-beta.1, tagged). 0.2.0 is not released as stable: phase 2 went on from the beta.
 
 **Phase 2 — media and mobile, ends in v0.3.0.**
 1. *Done:* streaming import (§4.1, ADR 0053).
@@ -148,9 +148,19 @@ The work is done in three phases, each ending in a release (ADR 0038, amending t
 7. *Done (ADR 0060):* desktop integration drafts (§5): the `.desktop` entry, the AppStream metainfo (description, releases, content rating, screenshots) and placeholder icons in `data/`, checked by `desktop-file-validate` and `appstreamcli` in the tests; no Flatpak manifest (a person writes it for Flathub).
 8. *Done (ADR 0061):* Anki `.apkg` import (§4.11), `.colpkg` too.
 9. *Done (ADR 0062, 0063):* the third clean-up and hardening round (§4.10): the decoder allow-list of §4.9, hostile images, audio, archives and Anki packages, batched syncs for an import's media.
-10. v0.3.0-beta (0.3.0-beta.1 prepared, not tagged), then v0.3.0.
+10. v0.3.0-beta (0.3.0-beta.1, tagged). 0.3.0 is not released as stable: phase 3a went on from the beta.
 
-**Phase 3 — ends in v1.0:** testing campaign, packaging, release (§5).
+**Phase 3a — organising and studying, ends in v0.4.0** (brief `docs/briefs/phase-3a.md`).
+1. Housekeeping (docs only): this roadmap, batch mode's names, the answered question.
+2. Small polish: key hints in the grade buttons' tooltips (#105), Ctrl+A selects all cards (#106), Move to Deck… per card on the deck page and during review (#102), a table's border hugs its columns (ADR 0019).
+3. Selection mode on the deck page (#104), shared with All Cards (§4.6).
+4. Merge decks (#103, §4.6).
+5. Archive a deck (§4.6; migration 0012, export field `archived_at`).
+6. Study by tag (§4.5).
+7. Practice mode (§4.5).
+8. Phase 2 leftovers: French labels in All Cards' filters and header subtitles at 360 px, Add Tags when the window shrinks, refusing an over-large import early and with Cancel, exports whose media exceed 2 GiB (§4.1).
+9. Code clean-up #4 and hardening round 4 (§4.10).
+10. v0.4.0-beta (0.4.0-beta.1), then v0.4.0.
 
 ### 4.1 Export / import
 - Export everything to one `.rappel` file (older `.cards` files import too, ADR 0020): a zip archive holding exactly `cards.json`, a `media/` folder and one entry `media/<sha256>.<ext>` per media file, stored as it is (ADR 0017, 0054). `cards.json` has `"format_version": 2`, `exported_at`, and all decks, cards, tags, card tags and the full review log with its resets and undos, deleted rows included with their `deleted_at`. Each card record has `suspended` (always written; a file without it reads as `false`, ADR 0035). It also has `settings` (the keys the user changed, ADR 0027) and `media`: one record per media file (`hash`, `mime`, `bytes`, `created_at`, sorted by hash), whose file is `media/<hash>.<ext>` (ADR 0054). A media file missing or damaged at export is left out with its record, and the export says how many.
@@ -185,6 +195,10 @@ The work is done in three phases, each ending in a release (ADR 0038, amending t
 - Undo last grade (Ctrl+Z, and an Undo button in the header) via an `undoes` event, repeatable back to the session's first grade, also from the summary; not available after leaving the page. *Done (ADR 0028, 0030).*
 - Reset Progress in each card's menu on the deck page, with an Undo toast; disabled for a card that is already new, and `reset_card` refuses one. *Done (ADR 0030, #38, #56).*
 - Daily limits from settings. New cards interleaved with reviews.
+- *To do (phase 3a):* the grade and Show Answer buttons say their key in their tooltip ("Pass (2)") instead of hints on the page (#105).
+- *To do (phase 3a):* Move to Deck… in the review page's Card Menu, leaving the session like Suspend (#102).
+- *To do (phase 3a):* **study by tag**: a normal session (same FSRS, same daily limits shared with the decks, written to the log) over the due and new cards that carry a tag, in any deck that is not archived; started from a tag on the deck page or in All Cards' tag filter.
+- *To do (phase 3a):* **practice mode** for a deck or a tag: cards in the order of lowest retrievability first, Fail / Pass, and **nothing written** (no review event, no change to any card), because FSRS would learn from a recall right after a review. Offered when the day's cards are done and in the deck's ⋮ menu.
 - Card actions during review: Edit (E), Suspend (S) and Delete (Delete key, with confirmation), the last two in the Card Menu too; each leaves the session at once and offers Undo in a toast. *Done (ADR 0037).*
 - Session summary at the end: cards reviewed, pass rate, time spent.
 
@@ -192,6 +206,11 @@ The work is done in three phases, each ending in a release (ADR 0038, amending t
 - An "All Cards" page: full-text search (FTS5) over the plain text of both sides, ignoring case and accents, with each word matched as a prefix; filter by deck, tag and state (new / learning / due / suspended). A virtualised list, fast at 5,000 cards and more.
 - Multi-select: move to deck, add or remove a tag, suspend or unsuspend, reset progress, delete; each with an Undo toast where the core can undo it. Open a card's editor and Card Information from the list.
 - Suspend: a suspended card is excluded from study and from the schedule's statistics, and kept otherwise. *Done (ADR 0035 for the index, the flag, the bulk writes and `browse`; ADR 0036 for the page: Ctrl+F or the deck list's search button; Suspend also in each card's ⋮ menu on the deck page).*
+- *To do (phase 3a):* Ctrl+A selects every card listed (All Cards and the deck page), entering selection mode (#106).
+- *To do (phase 3a):* Move to Deck… in each card's ⋮ menu on the deck page, with Undo (#102).
+- *To do (phase 3a):* selection mode on the deck page, the same as All Cards' and sharing its code (#104).
+- *To do (phase 3a):* **merge decks**: Merge Into… in a deck's ⋮ menu moves all its cards (deleted ones too, with their history) into another deck and soft-deletes the emptied deck, in one transaction undone by one Undo (#103).
+- *To do (phase 3a):* **archive a deck**: an archived deck leaves the deck list, study, the global forecast and retention, and the remembered last deck; its cards stay in All Cards (filter "Archived decks", hidden by default) and in exports, which carry `archived_at`. An "Archived Decks" page lists them with Unarchive.
 
 ### 4.7 Stats
 - Per deck and global: reviews per day and time studied per day (last 30 days, bar chart), pass rate, due forecast (next 14 days), and **expected retention** today = mean FSRS retrievability over reviewed cards.
@@ -226,11 +245,11 @@ The work is done in three phases, each ending in a release (ADR 0038, amending t
 
 ---
 
-## 5. Phase 3 and later
+## 5. Phase 3b and later
 
-Phase 3, ending in v1.0, in this order (translation, first here, moved to phase 2: §4.12):
+Phase 3b, publishing, ending in v1.0, in this order (translation, once planned here, moved to phase 2: §4.12; the features of phase 3a are in §4):
 1. **Testing campaign**: testers use the app on real collections, on desktop and phone, before 1.0; what they find is fixed before release.
-2. **Packaging**: Meson build + Flatpak manifest + AppStream metainfo + app icon + `.desktop` file (needed to install it properly and to look like a GNOME core app); it installs the `.mo` files and sets `RAPPEL_LOCALEDIR` (ADR 0059). The `.desktop` entry, the metainfo and placeholder icons are drafted in `data/` (ADR 0060): packaging merges their translations (`i18n.merge_file`), installs them, and replaces the icon with a designed one; the Flatpak manifest is written by hand.
+2. **Publishing**: a Meson build, a Snap and a self-hosted Flatpak (with its manifest, written by hand), all installing the `.mo` files and setting `RAPPEL_LOCALEDIR` (ADR 0059); the finished AppStream metainfo and `.desktop` entry, drafted in `data/` (ADR 0060), with their translations merged (`i18n.merge_file`); and a designed app icon replacing the placeholder.
 3. **Release** of 1.0.
 
 Not scheduled:

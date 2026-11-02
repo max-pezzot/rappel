@@ -6,6 +6,10 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- Roadmap (SPEC §4, §5): phase 3a, organising and studying, ends in 0.4.0; phase 3b, publishing (a Snap, a self-hosted Flatpak, the finished metainfo and icon), ends in 1.0. 0.2.0 and 0.3.0 are not released as stable.
+- `pulldown-cmark` updated to 0.13.6 for RUSTSEC-2026-0414 and RUSTSEC-2026-0433. Rappel never enabled wikilinks, so it was not affected (#108).
+
 ## [0.3.0-beta.1] — 2026-10-19
 
 The beta of phase 2, media and mobile. Cards can show images and play audio, and **Clean Up Media** in Preferences frees the space of files no card uses any more. Every screen fits a phone, upright or sideways, and works by touch. Rappel speaks French. Desktop entry and AppStream metainfo drafts are ready for packaging. Anki packages can be imported with their media and review history. Images, audio, archives and Anki packages from others are handled as hostile: images decoded in a sandbox where the system allows, every file checked before use, and refused early when they try to use up memory or time.
