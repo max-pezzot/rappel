@@ -1786,11 +1786,45 @@ mod tests {
             .collect()
     }
 
+    /// The Card Menu's `GtkModelButton` for Move to Deck… (found by its
+    /// private type name and `text` property, as in
+    /// `the_card_menu_shows_the_keys_the_page_binds`), opened in a window
+    /// so its action's state reaches it.
+    fn move_item_sensitive(page: &ReviewPage) -> bool {
+        let window = in_window(page);
+        window.present();
+        let button = &page.imp().card_menu_button;
+        button.popup();
+        let mut todo = vec![
+            button
+                .popover()
+                .expect("the menu is open")
+                .upcast::<gtk::Widget>(),
+        ];
+        let mut found = None;
+        while let Some(widget) = todo.pop() {
+            if widget.type_().name() == "GtkModelButton"
+                && widget.property::<Option<String>>("text").as_deref() == Some("Move to Deck…")
+            {
+                found = Some(widget.is_sensitive());
+            }
+            let mut child = widget.first_child();
+            while let Some(c) = child {
+                child = c.next_sibling();
+                todo.push(c);
+            }
+        }
+        button.popdown();
+        window.destroy();
+        found.expect("the Card Menu has Move to Deck…")
+    }
+
     #[test]
     fn move_to_deck_needs_another_deck() {
         crate::testing::with_widgets(|| {
             let (_tmp, _state, page, _) = page_of(2);
             assert!(!page.imp().can_move.get(), "the only deck");
+            assert!(!move_item_sensitive(&page), "the menu item is insensitive");
             // Even if the page thought there was a deck (a stale flag): the
             // look at the decks finds none, says so and opens nothing.
             page.imp().can_move.set(true);
@@ -1801,6 +1835,7 @@ mod tests {
             state2.create_deck("Other").unwrap();
             let (page2, _) = page_over(&state2, &sides(1));
             assert!(page2.imp().can_move.get(), "the deck has a neighbour");
+            assert!(move_item_sensitive(&page2));
         });
     }
 
