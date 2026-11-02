@@ -500,11 +500,24 @@ impl BrowserPage {
         self.imp().content_stack.add_controller(keys);
     }
 
-    /// Ctrl+A and Space on the list. Capture phase on the list, so they come
-    /// before the list view's own bindings (`list.select-all` and the item's
-    /// `listitem.select` do nothing on a list without a selection model).
-    /// The search field is not under the list, so it keeps its own Ctrl+A.
+    /// Space on the list, and Ctrl+A on the page.
+    ///
+    /// Space: capture phase on the list, so it comes before the list view's
+    /// own bindings (the item's `listitem.select` does nothing on a list
+    /// without a selection model).
+    ///
+    /// Ctrl+A (#106): `ui::select_all`, a capture controller on the whole
+    /// page that leaves the key to a text field with the focus (the search
+    /// entry selects its text); see there for the GTK sources.
     fn add_list_shortcuts(&self) {
+        let _ = crate::ui::select_all::install(
+            self,
+            glib::clone!(
+                #[weak(rename_to = page)]
+                self,
+                move || page.select_all()
+            ),
+        );
         let keys = gtk::EventControllerKey::new();
         keys.set_propagation_phase(gtk::PropagationPhase::Capture);
         keys.connect_key_pressed(glib::clone!(
@@ -513,10 +526,6 @@ impl BrowserPage {
             #[upgrade_or]
             glib::Propagation::Proceed,
             move |_, key, _, modifiers| match text::list_key(key, modifiers) {
-                Some(ListKey::SelectAll) => {
-                    page.select_all();
-                    glib::Propagation::Stop
-                }
                 Some(ListKey::Space) => {
                     let selecting = page.imp().selection.borrow().active();
                     match text::space_action(selecting, page.row_has_focus()) {
@@ -813,6 +822,8 @@ impl BrowserPage {
         self.update_selection_ui();
     }
 
+    /// Chooses every card the filters list, entering selection mode if
+    /// needed (Ctrl+A, Select All; #106). Nothing to choose, nothing done.
     fn select_all(&self) {
         let imp = self.imp();
         let ids = self.ids();
@@ -908,6 +919,13 @@ impl BrowserPage {
             // A header button about to hide must not keep the keyboard: it
             // goes to the Select button that takes its place.
             let header_focus = imp.select_all_button.has_focus() || imp.cancel_button.has_focus();
+            // Entering the mode hides the Select button the same way (Ctrl+A
+            // does it from anywhere): the keyboard goes to the list, or to
+            // Cancel when there is no list to go to.
+            // The window's focus widget, not `has_focus`, which is false while
+            // the window is not the active one.
+            let select_focus = imp.select_button.root().and_then(|root| root.focus())
+                == Some(imp.select_button.get().upcast());
             self.set_selecting(active);
             // The header of selection mode (HIG): how many are chosen, Select
             // All and Cancel; Back hides and Escape does not go back
@@ -921,6 +939,13 @@ impl BrowserPage {
             imp.action_bar.set_revealed(active);
             if header_focus && !active {
                 imp.select_button.grab_focus();
+            }
+            if select_focus && active {
+                if imp.content_stack.visible_child_name().as_deref() == Some("list") {
+                    imp.card_list.grab_focus();
+                } else {
+                    imp.cancel_button.grab_focus();
+                }
             }
         }
         imp.selection_title.set_title(&text::selection_title(n));
@@ -1595,6 +1620,89 @@ mod tests {
             assert_eq!(shown(&page).len(), 4);
             assert_eq!(imp.search_entry.text(), "");
             assert_eq!(imp.deck_filter.selected(), 0);
+        });
+    }
+
+    /// Presses `key` with `modifiers` on the page's Ctrl+A controller, as
+    /// a key press that reached the page would. Returns whether it handled
+    /// the key (a handled key goes no further).
+    fn press_select_all(page: &BrowserPage, key: gtk::gdk::Key) -> bool {
+        use gtk::gdk::ModifierType;
+        let controller = page
+            .observe_controllers()
+            .iter::<glib::Object>()
+            .filter_map(Result::ok)
+            .filter_map(|c| c.downcast::<gtk::EventControllerKey>().ok())
+            .find(|c| c.name().as_deref() == Some(crate::ui::select_all::CONTROLLER_NAME))
+            .expect("the page installs its Ctrl+A controller");
+        assert_eq!(
+            controller.propagation_phase(),
+            gtk::PropagationPhase::Capture
+        );
+        controller.emit_by_name::<bool>("key-pressed", &[&key, &0u32, &ModifierType::CONTROL_MASK])
+    }
+
+    #[test]
+    fn ctrl_a_chooses_every_card_listed_and_enters_selection_mode() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state, ids, maths) = state_with_cards();
+            let page = page_over(&state, Some(&maths));
+            let window = gtk::Window::builder().child(&page).build();
+            let imp = page.imp();
+            assert!(!page.selecting());
+            // With the list focused, the filter's cards (3 of 4) are chosen.
+            gtk::prelude::GtkWindowExt::set_focus(&window, Some(&*imp.card_list));
+            assert!(press_select_all(&page, gtk::gdk::Key::a));
+            assert!(page.selecting() && imp.action_bar.is_revealed());
+            assert_eq!(imp.selection_title.title(), "3 Selected");
+            let mut chosen = page.chosen_ids();
+            chosen.sort();
+            let mut expected = ids.clone();
+            expected.sort();
+            assert_eq!(chosen, expected);
+            // Again: still those 3.
+            assert!(press_select_all(&page, gtk::gdk::Key::A));
+            assert_eq!(page.chosen_ids().len(), 3);
+        });
+    }
+
+    #[test]
+    fn ctrl_a_from_the_select_button_moves_the_focus_to_the_list() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state, _, _) = state_with_cards();
+            let page = page_over(&state, None);
+            let window = gtk::Window::builder().child(&page).build();
+            let imp = page.imp();
+            gtk::prelude::GtkWindowExt::set_focus(&window, Some(&*imp.select_button));
+            assert!(press_select_all(&page, gtk::gdk::Key::a));
+            assert_eq!(page.chosen_ids().len(), 4);
+            assert!(!imp.select_button.is_visible());
+            assert!(
+                gtk::prelude::GtkWindowExt::focus(&window)
+                    .is_some_and(|w| w.is_ancestor(&*imp.card_list) || w == *imp.card_list),
+                "the focus went to the list, not nowhere"
+            );
+        });
+    }
+
+    #[test]
+    fn ctrl_a_in_the_search_field_selects_its_text_not_the_cards() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state, _, _) = state_with_cards();
+            let page = page_over(&state, None);
+            let window = gtk::Window::builder().child(&page).build();
+            let imp = page.imp();
+            let field = imp
+                .search_entry
+                .delegate()
+                .expect("a search entry has its text");
+            gtk::prelude::GtkWindowExt::set_focus(&window, Some(&field));
+            assert!(
+                !press_select_all(&page, gtk::gdk::Key::a),
+                "the page leaves the key to the text field"
+            );
+            assert!(!page.selecting());
+            assert_eq!(page.chosen_ids().len(), 0);
         });
     }
 

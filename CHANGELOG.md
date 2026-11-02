@@ -6,6 +6,9 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Ctrl+A chooses every card listed on All Cards**, whatever on the page has the keyboard (the list, a filter, the Select button), and starts selecting if you were not. In the search field it still selects the text (ADR 0064, #106).
+
 ### Changed
 - **The review page has no key hints under its buttons.** The Show Answer, Fail and Pass buttons say their key in their tooltip ("Pass (2)", "Fail (1)", "Show Answer (Space)"), and still in their accessible description; the Keyboard Shortcuts dialog is unchanged (ADR 0064, #105).
 - Roadmap (SPEC §4, §5): phase 3a, organising and studying, ends in 0.4.0; phase 3b, publishing (a Snap, a self-hosted Flatpak, the finished metainfo and icon), ends in 1.0. 0.2.0 and 0.3.0 are not released as stable.

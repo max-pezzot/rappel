@@ -146,6 +146,11 @@ fn bound_keys() -> Vec<(&'static str, Vec<String>)> {
             browser_text::LIST_KEYS
                 .iter()
                 .map(|&(key, ctrl, _)| trigger(key, ctrl))
+                .chain(
+                    crate::ui::select_all::KEYS
+                        .iter()
+                        .map(|&key| trigger(key, true)),
+                )
                 .chain([browser_text::TO_LIST_KEY, browser_text::ESCAPE_KEY].map(plain))
                 .collect(),
         ),
