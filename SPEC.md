@@ -152,7 +152,7 @@ The work is done in phases, each ending in a release (ADR 0038, amending the ord
 
 **Phase 3a — organising and studying, ends in v0.4.0** (brief `docs/briefs/phase-3a.md`).
 1. Housekeeping (docs only): this roadmap, batch mode's names, the answered question.
-2. Small polish: key hints in the grade buttons' tooltips (#105), Ctrl+A selects all cards (#106), Move to Deck… per card on the deck page and during review (#102), a table's border hugs its columns (ADR 0019).
+2. *Done (ADR 0064):* small polish: key hints in the grade buttons' tooltips (#105), Ctrl+A selects all cards on All Cards (#106; the deck page gets it with its selection mode, item 3), Move to Deck… per card on the deck page and during review (#102), a table's border hugs its columns (ADR 0019).
 3. Selection mode on the deck page (#104), shared with All Cards (§4.6).
 4. Merge decks (#103, §4.6).
 5. Archive a deck (§4.6; migration 0012, export field `archived_at`).
@@ -195,8 +195,8 @@ The work is done in phases, each ending in a release (ADR 0038, amending the ord
 - Undo last grade (Ctrl+Z, and an Undo button in the header) via an `undoes` event, repeatable back to the session's first grade, also from the summary; not available after leaving the page. *Done (ADR 0028, 0030).*
 - Reset Progress in each card's menu on the deck page, with an Undo toast; disabled for a card that is already new, and `reset_card` refuses one. *Done (ADR 0030, #38, #56).*
 - Daily limits from settings. New cards interleaved with reviews.
-- *To do (phase 3a):* the grade and Show Answer buttons say their key in their tooltip ("Pass (2)") instead of hints on the page (#105).
-- *To do (phase 3a):* Move to Deck… in the review page's Card Menu, leaving the session like Suspend (#102).
+- *Done (ADR 0064):* the grade and Show Answer buttons say their key in their tooltip ("Show Answer (Space)", "Fail (1)", "Pass (2)"; one translatable string `{name} ({key})`, the key as GTK labels it) instead of the hints under them on the page (#105); the accessible descriptions still state the key ("Press 2 or Space"), and the Keyboard Shortcuts dialog is unchanged.
+- *Done (ADR 0064):* Move to Deck… in the review page's Card Menu, between Suspend Card and Delete Card…: it asks for a deck other than the card's (the chooser of All Cards' Move, "Move Card"), moves the card at once, and takes it out of the session like Suspend (not counted as answered; the next card or the summary shows; the keys are ignored while the chooser is open and the focus returns to the card). An Undo toast, "Card moved", moves it back and puts it into the session as the next card; after leaving the page it only restores the database. The entry is disabled when no other deck exists, and has no key. A card deleted or moved elsewhere meanwhile leaves the session with a notice and nothing is written (#102).
 - *To do (phase 3a):* **study by tag**: a normal session (same FSRS, same daily limits shared with the decks, written to the log) over the due and new cards that carry a tag, in any deck that is not archived; started from a tag on the deck page or in All Cards' tag filter.
 - *To do (phase 3a):* **practice mode** for a deck or a tag: cards in the order of lowest retrievability first, Fail / Pass, and **nothing written** (no review event, no change to any card), because FSRS would learn from a recall right after a review. Offered when the day's cards are done and in the deck's ⋮ menu.
 - Card actions during review: Edit (E), Suspend (S) and Delete (Delete key, with confirmation), the last two in the Card Menu too; each leaves the session at once and offers Undo in a toast. *Done (ADR 0037).*
@@ -206,8 +206,9 @@ The work is done in phases, each ending in a release (ADR 0038, amending the ord
 - An "All Cards" page: full-text search (FTS5) over the plain text of both sides, ignoring case and accents, with each word matched as a prefix; filter by deck, tag and state (new / learning / due / suspended). A virtualised list, fast at 5,000 cards and more.
 - Multi-select: move to deck, add or remove a tag, suspend or unsuspend, reset progress, delete; each with an Undo toast where the core can undo it. Open a card's editor and Card Information from the list.
 - Suspend: a suspended card is excluded from study and from the schedule's statistics, and kept otherwise. *Done (ADR 0035 for the index, the flag, the bulk writes and `browse`; ADR 0036 for the page: Ctrl+F or the deck list's search button; Suspend also in each card's ⋮ menu on the deck page).*
-- *To do (phase 3a):* Ctrl+A selects every card listed (All Cards and the deck page), entering selection mode (#106).
-- *To do (phase 3a):* Move to Deck… in each card's ⋮ menu on the deck page, with Undo (#102).
+- *Done (ADR 0064):* Ctrl+A selects every card the filters list on All Cards, from anywhere on the page, entering selection mode if needed; it does nothing when no card is listed, moves the focus from the hidden Select button to the list, and in the search field (or any text field) it still selects the text. Listed in the Keyboard Shortcuts dialog as Select All (#106).
+- *To do (phase 3a):* the same Ctrl+A on the deck page, with its selection mode (`ui::select_all` is ready for it).
+- *Done (ADR 0064):* Move to Deck… in each card's ⋮ menu on the deck page (above Delete) and on All Cards (the two lists share the row): the chooser never offers the card's own deck, the entry is disabled when there is no other deck, the card leaves the deck page's list (focus on the row now at its place, else the last one, else Add Card) and an Undo toast, "Card moved" (All Cards: "1 card moved"), brings it back (#102).
 - *To do (phase 3a):* selection mode on the deck page, the same as All Cards' and sharing its code (#104).
 - *To do (phase 3a):* **merge decks**: Merge Into… in a deck's ⋮ menu moves all its cards (deleted ones too, with their history) into another deck and soft-deletes the emptied deck, in one transaction undone by one Undo (#103).
 - *To do (phase 3a):* **archive a deck**: an archived deck leaves the deck list, study, the global forecast and retention, and the remembered last deck; its cards stay in All Cards (filter "Archived decks", hidden by default) and in exports, which carry `archived_at`. An "Archived Decks" page lists them with Unarchive.
