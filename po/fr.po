@@ -321,6 +321,11 @@ msgid "_Reset Progress"
 msgstr "_Réinitialiser la progression"
 
 #: crates/app/data/card_row.blp
+#: crates/app/data/review_page.blp
+msgid "_Move to Deck…"
+msgstr "_Déplacer vers un paquet…"
+
+#: crates/app/data/card_row.blp
 #: crates/app/data/deck_row.blp
 #: crates/app/data/delete_card_dialog.blp
 msgid "_Delete"
@@ -645,11 +650,6 @@ msgstr "Afficher la _réponse"
 msgid "Press Space"
 msgstr "Appuyez sur Espace"
 
-#. Translators: the name of the Space key, shown under Show Answer.
-#: crates/app/data/review_page.blp
-msgid "Space"
-msgstr "Espace"
-
 #: crates/app/data/review_page.blp
 msgid "_Fail"
 msgstr "R_até"
@@ -658,11 +658,6 @@ msgstr "R_até"
 msgid "Press 1"
 msgstr "Appuyez sur 1"
 
-#. Translators: the key that answers Fail; keep it as it is.
-#: crates/app/data/review_page.blp
-msgid "1"
-msgstr "1"
-
 #: crates/app/data/review_page.blp
 msgid "_Pass"
 msgstr "Réu_ssi"
@@ -670,11 +665,6 @@ msgstr "Réu_ssi"
 #: crates/app/data/review_page.blp
 msgid "Press 2 or Space"
 msgstr "Appuyez sur 2 ou Espace"
-
-#. Translators: the key that answers Pass; keep it as it is.
-#: crates/app/data/review_page.blp
-msgid "2"
-msgstr "2"
 
 #: crates/app/data/review_page.blp
 msgid "_Suspend Card"
@@ -717,14 +707,17 @@ msgid "Studying"
 msgstr "Étude"
 
 #: crates/app/data/shortcuts-dialog.blp
+#: crates/app/src/pages/review_page.rs
 msgid "Show Answer"
 msgstr "Afficher la réponse"
 
 #: crates/app/data/shortcuts-dialog.blp
+#: crates/app/src/pages/review_page.rs
 msgid "Fail"
 msgstr "Raté"
 
 #: crates/app/data/shortcuts-dialog.blp
+#: crates/app/src/pages/review_page.rs
 msgid "Pass"
 msgstr "Réussi"
 
@@ -1164,6 +1157,31 @@ msgstr "Renommer le paquet"
 msgid "_Rename"
 msgstr "_Renommer"
 
+#: crates/app/src/dialogs/move_card.rs
+msgid "Move Card"
+msgstr "Déplacer la carte"
+
+#: crates/app/src/dialogs/move_card.rs
+msgid "Choose the deck to move this card to."
+msgstr "Choisissez le paquet où déplacer cette carte."
+
+#: crates/app/src/dialogs/move_card.rs
+msgid "Card moved"
+msgstr "Carte déplacée"
+
+#: crates/app/src/dialogs/move_card.rs
+msgid "The card could not be moved back"
+msgstr "La carte n’a pas pu être remise"
+
+#: crates/app/src/dialogs/move_card.rs
+msgid "No other deck to move it to"
+msgstr "Aucun autre paquet où la déplacer"
+
+#: crates/app/src/dialogs/move_card.rs
+#: crates/app/src/pages/browser_page.rs
+msgid "_Move"
+msgstr "_Déplacer"
+
 #. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
 #: crates/app/src/dialogs/preferences.rs
 msgid "The settings could not be read: {error}"
@@ -1199,6 +1217,7 @@ msgstr "Ouverture du dossier impossible : {error}"
 
 #. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
 #: crates/app/src/pages/browser_page.rs
+#: crates/app/src/pages/deck_page.rs
 #: crates/app/src/pages/decks_page.rs
 msgid "The decks could not be read: {error}"
 msgstr "Lecture des paquets impossible : {error}"
@@ -1219,10 +1238,6 @@ msgstr "Lecture des étiquettes impossible : {error}"
 #: crates/app/src/pages/browser_page.rs
 msgid "Move Cards"
 msgstr "Déplacer les cartes"
-
-#: crates/app/src/pages/browser_page.rs
-msgid "_Move"
-msgstr "_Déplacer"
 
 #: crates/app/src/pages/browser_page.rs
 msgid "_Remove"
@@ -1466,6 +1481,12 @@ msgstr "Suppression impossible : {error}"
 msgid "Card deleted"
 msgstr "Carte supprimée"
 
+#. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
+#: crates/app/src/pages/deck_page.rs
+#: crates/app/src/pages/review_page.rs
+msgid "The card could not be moved: {error}"
+msgstr "Déplacement impossible : {error}"
+
 #: crates/app/src/pages/deck_page.rs
 msgid "Progress reset"
 msgstr "Progression effacée"
@@ -1510,6 +1531,11 @@ msgstr "Annulation impossible : {error}"
 #: crates/app/src/pages/review_page.rs
 msgid "The card could not be restored: {error}"
 msgstr "Restauration impossible : {error}"
+
+#. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
+#: crates/app/src/pages/deck_page.rs
+msgid "The card could not be moved back: {error}"
+msgstr "Retour impossible : {error}"
 
 #: crates/app/src/pages/deck_page.rs
 #: crates/app/src/widgets/deck_row/text.rs
@@ -1628,6 +1654,11 @@ msgstr "La copie en attente n’a pas pu être vérifiée : {error}. Elle est 
 msgid "Finishing the restore failed: {error}"
 msgstr "Échec de la fin de restauration : {error}"
 
+#. Translators: the tooltip of a button that a key also presses. {name} is the button ("Pass"), {key} the key ("2").
+#: crates/app/src/pages/review_page.rs
+msgid "{name} ({key})"
+msgstr "{name} ({key})"
+
 #. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
 #: crates/app/src/pages/review_page.rs
 msgid "A card could not be read and was skipped: {error}"
@@ -1640,6 +1671,10 @@ msgstr "La carte était déjà suspendue"
 #: crates/app/src/pages/review_page.rs
 msgid "The card was already gone"
 msgstr "La carte n’existait déjà plus"
+
+#: crates/app/src/pages/review_page.rs
+msgid "The card was already moved"
+msgstr "La carte avait déjà été déplacée"
 
 #: crates/app/src/pages/review_page.rs
 msgid "This answer can no longer be undone"
@@ -2946,3 +2981,12 @@ msgstr "Voyez combien vous avez étudié et ce que vous retenez"
 #: data/io.github.rsmirke.Rappel.metainfo.xml.in
 msgid "Pictures on cards, on a phone"
 msgstr "Des images sur les cartes, sur un téléphone"
+
+#~ msgid "Space"
+#~ msgstr "Espace"
+
+#~ msgid "1"
+#~ msgstr "1"
+
+#~ msgid "2"
+#~ msgstr "2"

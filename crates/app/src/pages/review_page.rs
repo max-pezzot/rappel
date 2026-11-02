@@ -30,7 +30,7 @@ use rappel_core::domain::{CardState, Deck, Grade};
 use rappel_core::scheduling::{Session, Summary, capped};
 
 use crate::dialogs::card_editor::{CardEditor, Saved};
-use crate::dialogs::card_info;
+use crate::dialogs::{card_info, move_card};
 use crate::i18n::{self, gettext, ngettext};
 use crate::render::{Images, audio_controls, back_shown, clear, fill, shown_part, stop_audio};
 use crate::state::AppState;
@@ -88,11 +88,11 @@ mod imp {
         #[template_child]
         pub bottom_bar: TemplateChild<adw::Clamp>,
         #[template_child]
-        pub reveal_hint: TemplateChild<gtk::Label>,
+        pub reveal_button: TemplateChild<gtk::Button>,
         #[template_child]
-        pub fail_hint: TemplateChild<gtk::Label>,
+        pub fail_button: TemplateChild<gtk::Button>,
         #[template_child]
-        pub pass_hint: TemplateChild<gtk::Label>,
+        pub pass_button: TemplateChild<gtk::Button>,
         #[template_child]
         pub buttons: TemplateChild<adw::ViewStack>,
         #[template_child]
@@ -136,8 +136,11 @@ mod imp {
         pub errors: ErrorSlot,
         /// Whether the card editor is open.
         pub editing: Rc<Cell<bool>>,
-        /// Whether the question before a delete is open.
+        /// Whether the question before a delete, or the choice of a deck to
+        /// move the card to, is open.
         pub asking: Cell<bool>,
+        /// Another deck exists to move the card on screen to.
+        pub can_move: Cell<bool>,
         /// Told about every save made from this page's editor.
         pub on_saved: OnceCell<Callback<OnSaved>>,
         /// Fades the back in at the reveal (`super::reveal_step`).
@@ -165,6 +168,7 @@ mod imp {
             klass.install_action("review.suspend", None, |page, _, _| {
                 page.remove_current(super::Removal::Suspend);
             });
+            klass.install_action("review.move", None, |page, _, _| page.move_current());
             klass.install_action("review.delete", None, |page, _, _| page.confirm_delete());
             klass.install_action("review.undo", None, |page, _, _| page.undo());
         }
@@ -179,6 +183,7 @@ mod imp {
             self.parent_constructed();
             let page = self.obj();
             page.setup_keys();
+            page.setup_key_tooltips();
             page.setup_reveal_animation();
             page.setup_short_summary();
             // A grab before the push does nothing, and the navigation view
@@ -233,6 +238,43 @@ fn undo_removal(
         Removal::Suspend => state.restore_suspended(&[id.to_owned()], false).map(|_| ()),
         Removal::Delete => state.undelete_card(id).map(|_| ()),
     };
+    finish_undo(state, id, result, page, window);
+}
+
+/// The Undo of a move to another deck: the card is studied again if it went
+/// back to its deck. `result` is how many cards went back, 0 if it could
+/// not (moved again, deleted, or its deck deleted since).
+fn undo_move(
+    state: &AppState,
+    id: &str,
+    result: rappel_core::Result<usize>,
+    page: &glib::WeakRef<ReviewPage>,
+    window: Option<&glib::WeakRef<RappelWindow>>,
+) {
+    let window = window.and_then(glib::WeakRef::upgrade);
+    match result {
+        Ok(0) => {
+            let text = move_card::not_moved_back_text();
+            match window {
+                Some(window) => show_toast_from(&window, info_toast(&text)),
+                None => log_failure("a review operation", &text),
+            }
+        }
+        Ok(_) => finish_undo(state, id, Ok(()), page, window),
+        Err(err) => finish_undo(state, id, Err(err), page, window),
+    }
+}
+
+/// After the Undo of a removal wrote (`result`): the card is put back into
+/// the session if the page is still shown and the card is live and not
+/// suspended, and the other pages read the change; or the error is shown.
+fn finish_undo(
+    state: &AppState,
+    id: &str,
+    result: rappel_core::Result<()>,
+    page: &glib::WeakRef<ReviewPage>,
+    window: Option<RappelWindow>,
+) {
     match result {
         Ok(()) => {
             // Only a card that is live and not suspended is studied again
@@ -317,6 +359,23 @@ const KEYS: [(&str, Key); 18] = [
 #[cfg(test)]
 pub(crate) fn key_triggers() -> impl Iterator<Item = &'static str> {
     KEYS.iter().map(|(trigger, _)| *trigger)
+}
+
+/// The tooltip of a button that a key also presses: "Pass (2)". `name` is
+/// the button's name without its mnemonic, `key` the key as the user sees
+/// it ("Space").
+fn key_tooltip(name: &str, key: &str) -> String {
+    // Translators: the tooltip of a button that a key also presses.
+    // {name} is the button ("Pass"), {key} the key ("2").
+    i18n::fill(&gettext("{name} ({key})"), &[("name", name), ("key", key)])
+}
+
+/// How GTK labels the first of [`KEYS`] bound to `key` ("Space", "2"), the
+/// way it shows an accelerator in a menu, in the user's language.
+fn key_label(key: Key) -> Option<String> {
+    let (trigger, _) = KEYS.iter().find(|(_, bound)| *bound == key)?;
+    let (keyval, modifiers) = gtk::accelerator_parse(*trigger)?;
+    Some(gtk::accelerator_get_label(keyval, modifiers).to_string())
 }
 
 /// What a key makes the page do.
@@ -436,6 +495,22 @@ impl ReviewPage {
         self.add_controller(shortcuts);
     }
 
+    /// Gives Show Answer, Fail and Pass their key in the tooltip (#105),
+    /// as the page binds it: the key's label is the one GTK shows in menus
+    /// (`gtk_accelerator_get_label`), in the user's language.
+    fn setup_key_tooltips(&self) {
+        let imp = self.imp();
+        for (button, name, key) in [
+            (&*imp.reveal_button, gettext("Show Answer"), Key::Space),
+            (&*imp.fail_button, gettext("Fail"), Key::Fail),
+            (&*imp.pass_button, gettext("Pass"), Key::Pass),
+        ] {
+            if let Some(label) = key_label(key) {
+                button.set_tooltip_text(Some(&key_tooltip(&name, &label)));
+            }
+        }
+    }
+
     /// Puts the keyboard focus on the card, or on Back to Deck at the end.
     fn park_focus(&self) {
         let imp = self.imp();
@@ -533,6 +608,12 @@ impl ReviewPage {
             .reset_property(gtk::AccessibleProperty::Description);
         self.keep_back(&card.back_md);
         imp.revealed_at.set(None);
+        // Move to Deck… needs a deck other than the card's own.
+        imp.can_move.set(
+            state
+                .decks()
+                .is_ok_and(|decks| move_card::offered(&decks, Some(&card.deck_id))),
+        );
         imp.current.replace(Some(id));
         imp.shown_at.set(Some(Instant::now()));
         let left = imp.session.borrow().as_ref().map_or(0, Session::remaining);
@@ -890,6 +971,123 @@ impl ReviewPage {
         }
     }
 
+    /// Move to Deck… (Card Menu): asks for a deck other than the card's,
+    /// moves the card there, and takes it out of the session as Suspend
+    /// does (ADR 0037, 0064), with an Undo toast. Nothing is counted as
+    /// answered.
+    fn move_current(&self) {
+        let imp = self.imp();
+        if imp.editing.get() || imp.asking.get() || !imp.can_move.get() {
+            return;
+        }
+        let (Some(id), Some(state)) = (imp.current.borrow().clone(), imp.state.get().cloned())
+        else {
+            return;
+        };
+        let targets = match state.card(&id).and_then(|card| {
+            let decks = state.decks()?;
+            Ok(move_card::targets(&decks, &card.deck_id)
+                .into_iter()
+                .cloned()
+                .collect::<Vec<Deck>>())
+        }) {
+            Ok(targets) => targets,
+            Err(rappel_core::Error::CardNotFound(_)) => {
+                // Deleted elsewhere meanwhile: it is gone from the session too.
+                self.leave_session(&id);
+                show_toast_from(self, info_toast(&gettext("The card was already gone")));
+                return;
+            }
+            Err(err) => {
+                // Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
+                self.error_toast(&with_error(
+                    &gettext("The card could not be changed: {error}"),
+                    &err,
+                ));
+                return;
+            }
+        };
+        if targets.is_empty() {
+            // The last other deck went since the card was shown.
+            imp.can_move.set(false);
+            self.action_set_enabled("review.move", false);
+            show_toast_from(self, info_toast(&move_card::no_other_deck_text()));
+            return;
+        }
+        imp.asking.set(true);
+        glib::spawn_future_local(glib::clone!(
+            #[weak(rename_to = page)]
+            self,
+            async move {
+                // AdwDialog gives the focus back to the widget that had it
+                // when it has closed (see `confirm_delete`): the card area
+                // needs it for the keys to work.
+                let closed = glib::clone!(
+                    #[weak]
+                    page,
+                    move || page.park_focus()
+                );
+                let answer = move_card::choose_deck(&page, targets, closed).await;
+                page.imp().asking.set(false);
+                // Only the card the question was about.
+                if let Some(target) = answer
+                    && page.imp().current.borrow().as_deref() == Some(&id)
+                {
+                    page.finish_move(&id, &target);
+                }
+            }
+        ));
+    }
+
+    /// Moves card `id` to `target`, then the card leaves the session.
+    fn finish_move(&self, id: &str, target: &Deck) {
+        let Some(state) = self.imp().state.get() else {
+            return;
+        };
+        let moved = match state.move_cards(&[id.to_owned()], &target.id) {
+            Ok(moved) if !moved.is_empty() => moved,
+            Ok(_) => {
+                // In that deck already: it is not this session's any more.
+                self.leave_session(id);
+                show_toast_from(self, info_toast(&gettext("The card was already moved")));
+                return;
+            }
+            Err(rappel_core::Error::CardNotFound(_)) => {
+                self.leave_session(id);
+                show_toast_from(self, info_toast(&gettext("The card was already gone")));
+                return;
+            }
+            Err(rappel_core::Error::DeckNotFound(_)) => {
+                // The deck was deleted while the choice was open.
+                show_toast_from(self, info_toast(&crate::pages::browser_text::stale_text()));
+                return;
+            }
+            Err(err) => {
+                // Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
+                self.error_toast(&with_error(
+                    &gettext("The card could not be moved: {error}"),
+                    &err,
+                ));
+                return;
+            }
+        };
+        self.leave_session(id);
+
+        // As for Suspend: Undo must work after leaving the page, so the
+        // closure keeps the state and weak references, not the page.
+        let window = self.root().and_downcast::<RappelWindow>();
+        if let Some(window) = &window {
+            window.data_changed();
+        }
+        let (id, state) = (id.to_owned(), state.clone());
+        let page = self.downgrade();
+        let window = window.map(|w| w.downgrade());
+        let toast = move_card::moved_toast(&state.clone(), moved, move |result| {
+            undo_move(&state, &id, result, &page, window.as_ref());
+        });
+        show_toast_from(self, toast);
+    }
+
     /// Asks before deleting the card on screen. Cancel is the default.
     fn confirm_delete(&self) {
         let imp = self.imp();
@@ -982,6 +1180,7 @@ impl ReviewPage {
         self.action_set_enabled("review.edit", editable);
         self.action_set_enabled("review.card-info", editable);
         self.action_set_enabled("review.suspend", editable);
+        self.action_set_enabled("review.move", editable && self.imp().can_move.get());
         self.action_set_enabled("review.delete", editable);
         self.imp().edit_button.set_visible(editable);
         self.imp().card_menu_button.set_visible(editable);
@@ -1581,6 +1780,123 @@ mod tests {
         });
     }
 
+    fn sides(n: usize) -> Vec<(String, String)> {
+        (0..n)
+            .map(|i| (format!("front {i}"), "back".to_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn move_to_deck_needs_another_deck() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, _state, page, _) = page_of(2);
+            assert!(!page.imp().can_move.get(), "the only deck");
+            // The disabled action opens nothing.
+            let _ = page.activate_action("review.move", None);
+            assert!(!page.imp().asking.get());
+            // Even if the page thought there was a deck (a stale flag): the
+            // look at the decks finds none, says so and opens nothing.
+            page.imp().can_move.set(true);
+            page.move_current();
+            assert!(!page.imp().asking.get());
+            assert!(!page.imp().can_move.get(), "the flag is corrected");
+            let (_tmp2, state2) = crate::testing::temporary_state();
+            state2.create_deck("Other").unwrap();
+            let (page2, _) = page_over(&state2, &sides(1));
+            assert!(page2.imp().can_move.get(), "the deck has a neighbour");
+        });
+    }
+
+    #[test]
+    fn a_moved_card_leaves_the_session_like_a_suspended_one_and_undo_brings_it_back() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state) = crate::testing::temporary_state();
+            let other = state.create_deck("Other").unwrap();
+            let (page, _) = page_over(&state, &sides(3));
+            let _window = in_window(&page);
+            let first = current(&page).unwrap();
+            let from = state.card(&first).unwrap().deck_id;
+            let left = |page: &ReviewPage| {
+                page.imp()
+                    .session
+                    .borrow()
+                    .as_ref()
+                    .map_or(0, Session::remaining)
+            };
+            assert_eq!(left(&page), 3);
+
+            page.finish_move(&first, &other);
+            // In the other deck, no longer in the session, nothing answered.
+            assert_eq!(state.card(&first).unwrap().deck_id, other.id);
+            assert_ne!(current(&page).as_deref(), Some(first.as_str()));
+            assert_eq!(left(&page), 2);
+            assert_eq!(
+                page.imp()
+                    .session
+                    .borrow()
+                    .as_ref()
+                    .unwrap()
+                    .summary()
+                    .cards,
+                0
+            );
+
+            let on_screen = current(&page);
+            // Undo: the card is back in its deck and comes next.
+            let moved = vec![rappel_core::storage::Moved {
+                card_id: first.clone(),
+                from: from.clone(),
+                to: other.id.clone(),
+            }];
+            undo_move(
+                &state,
+                &first,
+                state.unmove_cards(&moved),
+                &page.downgrade(),
+                None,
+            );
+            assert_eq!(state.card(&first).unwrap().deck_id, from);
+            assert_eq!(current(&page), on_screen, "it comes next, not at once");
+            assert_eq!(left(&page), 3);
+
+            // An Undo that could not move the card back (moved again since)
+            // puts nothing back.
+            page.finish_move(&first, &other);
+            let again = state.create_deck("Third").unwrap();
+            state
+                .move_cards(std::slice::from_ref(&first), &again.id)
+                .unwrap();
+            let moved = vec![rappel_core::storage::Moved {
+                card_id: first.clone(),
+                from,
+                to: other.id.clone(),
+            }];
+            undo_move(
+                &state,
+                &first,
+                state.unmove_cards(&moved),
+                &page.downgrade(),
+                None,
+            );
+            assert_ne!(current(&page).as_deref(), Some(first.as_str()));
+            assert_eq!(state.card(&first).unwrap().deck_id, again.id);
+        });
+    }
+
+    #[test]
+    fn a_card_deleted_elsewhere_leaves_the_session_instead_of_moving() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state) = crate::testing::temporary_state();
+            let other = state.create_deck("Other").unwrap();
+            let (page, _) = page_over(&state, &sides(2));
+            let _window = in_window(&page);
+            let first = current(&page).unwrap();
+            state.delete_card(&first).unwrap();
+            page.finish_move(&first, &other);
+            assert_ne!(current(&page).as_deref(), Some(first.as_str()));
+        });
+    }
+
     #[test]
     fn an_undo_after_the_page_is_gone_restores_the_card_only_in_the_database() {
         crate::testing::with_widgets(|| {
@@ -1951,26 +2267,33 @@ mod tests {
         );
     }
 
-    /// The hints under the buttons name keys the page binds to the same act,
-    /// and screen readers skip them.
     #[test]
-    fn the_key_hints_match_the_keys() {
+    fn a_tooltip_names_the_button_and_its_key() {
+        assert_eq!(key_tooltip("Pass", "2"), "Pass (2)");
+        assert_eq!(key_tooltip("Fail", "1"), "Fail (1)");
+        assert_eq!(key_tooltip("Show Answer", "Space"), "Show Answer (Space)");
+        // A name or a key with braces is not read as a placeholder.
+        assert_eq!(key_tooltip("{key}", "{name}"), "{key} ({name})");
+    }
+
+    /// The buttons' tooltips name the keys the page binds to the same act
+    /// (#105), and no hint is left on the page.
+    #[test]
+    fn the_buttons_say_their_keys_in_their_tooltips() {
         crate::testing::with_widgets(|| {
             let page: ReviewPage = glib::Object::new();
             let imp = page.imp();
-            for (hint, trigger, act) in [
-                (&*imp.reveal_hint, "space", Act::Reveal),
-                (&*imp.fail_hint, "1", Act::Grade(Grade::Fail)),
-                (&*imp.pass_hint, "2", Act::Grade(Grade::Pass)),
+            for (button, tooltip, trigger, act) in [
+                (
+                    &*imp.reveal_button,
+                    "Show Answer (Space)",
+                    "space",
+                    Act::Reveal,
+                ),
+                (&*imp.fail_button, "Fail (1)", "1", Act::Grade(Grade::Fail)),
+                (&*imp.pass_button, "Pass (2)", "2", Act::Grade(Grade::Pass)),
             ] {
-                assert_eq!(hint.accessible_role(), gtk::AccessibleRole::Presentation);
-                // The hint shows the key as GTK names it ("space" → "Space").
-                let (key, mods) = gtk::accelerator_parse(trigger).unwrap();
-                assert_eq!(
-                    hint.label(),
-                    gtk::accelerator_get_label(key, mods),
-                    "{trigger}"
-                );
+                assert_eq!(button.tooltip_text().as_deref(), Some(tooltip));
                 let (_, bound) = KEYS.iter().find(|(t, _)| *t == trigger).unwrap();
                 let revealed = act != Act::Reveal;
                 assert_eq!(key_action(*bound, revealed, true), Some(act), "{trigger}");
@@ -1981,6 +2304,9 @@ mod tests {
             key_action(Key::Space, true, true),
             Some(Act::Grade(Grade::Pass))
         );
+        // Nothing under or beside the buttons any more.
+        let blueprint = include_str!("../../data/review_page.blp");
+        assert!(!blueprint.contains("_hint"));
     }
 
     /// GTK has no public getter for an accessible description, so the
@@ -2326,8 +2652,13 @@ mod tests {
                 .expect("the card menu button has its menu");
             let mut items = Vec::new();
             menu_items(&menu, &mut items);
-            assert_eq!(items.len(), 3);
+            assert_eq!(items.len(), 4);
             for (action, accel) in items {
+                // Move to Deck… has no key.
+                if action == "review.move" {
+                    assert_eq!(accel, None);
+                    continue;
+                }
                 let accel = accel.unwrap_or_else(|| panic!("{action} shows no key"));
                 let bound = KEYS
                     .iter()
@@ -2360,6 +2691,7 @@ mod tests {
             assert_eq!(
                 shown,
                 [
+                    None,
                     Some("Delete".to_owned()),
                     Some("i".to_owned()),
                     Some("s".to_owned())

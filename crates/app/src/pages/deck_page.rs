@@ -10,8 +10,10 @@
 //! order. Changes update it item by item instead of rebuilding it, so a
 //! deck of thousands of cards keeps its scroll position and stays fast.
 
+use std::cell::Cell;
 use std::cmp::Ordering;
 use std::collections::HashSet;
+use std::rc::Rc;
 use std::time::Duration;
 
 use adw::prelude::*;
@@ -22,7 +24,7 @@ use rappel_core::domain::{Card, CardState, Deck, TaggedCard};
 use rappel_core::scheduling::StudyInput;
 
 use crate::dialogs::card_editor::{CardEditor, Saved};
-use crate::dialogs::card_info;
+use crate::dialogs::{card_info, move_card};
 use crate::i18n::gettext;
 use crate::pages::{ReviewPage, StatsPage};
 use crate::state::AppState;
@@ -87,6 +89,10 @@ mod imp {
         /// tag pills.
         #[property(get, set)]
         pub compact: Cell<bool>,
+        /// Another deck exists to move a card to: the rows' Move to
+        /// Deck… is enabled (`move_card::offered`).
+        #[property(get, set)]
+        pub can_move: Cell<bool>,
     }
 
     #[glib::object_subclass]
@@ -109,6 +115,7 @@ mod imp {
             // Activated by the card rows' menus with the card id.
             rows::install_id_action(klass, "deck.edit-card", super::DeckPage::edit);
             rows::install_id_action(klass, "deck.delete-card", super::DeckPage::delete);
+            rows::install_id_action(klass, "deck.move-card", super::DeckPage::move_card);
             rows::install_id_action(klass, "deck.suspend-card", |page, id| {
                 page.suspend(id, true);
             });
@@ -207,7 +214,21 @@ impl DeckPage {
         init_once(&imp.cards, store);
         page.update_empty_state();
         page.update_study();
+        page.update_can_move();
         Ok(page)
+    }
+
+    /// Enables the rows' Move to Deck… while another deck exists.
+    fn update_can_move(&self) {
+        let imp = self.imp();
+        let (Some(state), Some(deck)) = (imp.state.get(), imp.deck.get()) else {
+            return;
+        };
+        match state.decks() {
+            Ok(decks) => self.set_can_move(move_card::offered(&decks, Some(&deck.id))),
+            // The entry keeps its last state; the move itself looks again.
+            Err(err) => tracing::warn!("the decks could not be read for Move to Deck: {err}"),
+        }
     }
 
     /// Makes each row's Reset Progress follow the cards' state: a card
@@ -484,6 +505,105 @@ impl DeckPage {
         show_toast_from(self, toast);
     }
 
+    /// Move to Deck…: asks for a deck other than this one, moves the card
+    /// there at once, and the card leaves the list; the toast's Undo moves
+    /// it back (#102).
+    fn move_card(&self, id: &str) {
+        let imp = self.imp();
+        let (Some(state), Some(deck)) = (imp.state.get().cloned(), imp.deck.get().cloned()) else {
+            return;
+        };
+        let id = id.to_owned();
+        glib::spawn_future_local(glib::clone!(
+            #[weak(rename_to = page)]
+            self,
+            async move {
+                let decks = match state.decks() {
+                    Ok(decks) => decks,
+                    Err(err) => {
+                        // Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
+                        page.error_toast(&with_error(
+                            &gettext("The decks could not be read: {error}"),
+                            &err,
+                        ));
+                        return;
+                    }
+                };
+                let targets: Vec<Deck> = move_card::targets(&decks, &deck.id)
+                    .into_iter()
+                    .cloned()
+                    .collect();
+                if targets.is_empty() {
+                    // The last other deck went since the menu was built.
+                    page.update_can_move();
+                    show_toast_from(&page, info_toast(&move_card::no_other_deck_text()));
+                    return;
+                }
+                // The dialog gives the focus back to the widget that had it
+                // (a row's menu button, now bound to another card) when it
+                // closes, after the answer: the focus is set again then.
+                let focus: Rc<Cell<Option<MovedFocus>>> = Rc::default();
+                let closed = glib::clone!(
+                    #[weak]
+                    page,
+                    #[strong]
+                    focus,
+                    move || {
+                        if let Some(focus) = focus.take() {
+                            page.focus_or_empty_state(focus.position());
+                        }
+                    }
+                );
+                if let Some(target) = move_card::choose_deck(&page, targets, closed).await {
+                    focus.set(page.finish_move(&state, &id, &target));
+                }
+            }
+        ));
+    }
+
+    /// Moves card `id` to `target` and takes its row out of the list.
+    /// Returns where the focus went: the row now at the card's place, or
+    /// `None` for the empty state; `None` if the card did not move.
+    fn finish_move(&self, state: &AppState, id: &str, target: &Deck) -> Option<MovedFocus> {
+        let store = self.imp().cards.get()?;
+        let moved = match state.move_cards(&[id.to_owned()], &target.id) {
+            Ok(moved) if !moved.is_empty() => moved,
+            // Already in that deck (moved elsewhere meanwhile), or gone: the
+            // list is old.
+            Ok(_) | Err(Error::CardNotFound(_) | Error::DeckNotFound(_)) => {
+                self.reload();
+                show_toast_from(self, info_toast(&crate::pages::browser_text::stale_text()));
+                return None;
+            }
+            Err(err) => {
+                // Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
+                self.error_toast(&with_error(
+                    &gettext("The card could not be moved: {error}"),
+                    &err,
+                ));
+                return None;
+            }
+        };
+        let focus = self.position(id).map(|position| {
+            store.remove(position);
+            let next = MovedFocus::after_removal(index_after_removal(position, store.n_items()));
+            self.focus_or_empty_state(next.position());
+            next
+        });
+        let window = self.root().and_downcast::<RappelWindow>();
+        counts_changed(self, window.as_ref());
+
+        // As for a delete: Undo must work from another page.
+        let (id, state) = (id.to_owned(), state.clone());
+        let page = self.downgrade();
+        let window = window.map(|w| w.downgrade());
+        let toast = move_card::moved_toast(&state.clone(), moved, move |result| {
+            undo_card_move(&state, &id, result, &page, window.as_ref());
+        });
+        show_toast_from(self, toast);
+        focus
+    }
+
     /// Makes the card new again at once, keeping its history; the toast's
     /// Undo cancels the reset (ADR 0028, 0030).
     fn reset(&self, id: &str) {
@@ -632,6 +752,7 @@ impl DeckPage {
         else {
             return;
         };
+        self.update_can_move();
         match state
             .list_tagged_cards(&deck.id)
             .and_then(|cards| Ok((cards, state.new_card_ids(&deck.id)?)))
@@ -893,6 +1014,76 @@ fn undo_card_delete(
     }
 }
 
+/// Where the focus goes after a card moved out of the list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MovedFocus {
+    /// The row now at this position.
+    Row(u32),
+    /// No row is left: the empty state's Add Card button.
+    EmptyState,
+}
+
+impl MovedFocus {
+    /// From `index_after_removal`.
+    fn after_removal(next: Option<u32>) -> Self {
+        next.map_or(Self::EmptyState, Self::Row)
+    }
+
+    /// As `focus_or_empty_state` takes it.
+    fn position(self) -> Option<u32> {
+        match self {
+            Self::Row(position) => Some(position),
+            Self::EmptyState => None,
+        }
+    }
+}
+
+/// The Undo of a card move: the card is back in its deck, on `page` if it
+/// is still there and through `window` (the deck may have been reopened in
+/// a new page, or left). `result` is how many cards went back.
+fn undo_card_move(
+    state: &AppState,
+    id: &str,
+    result: rappel_core::Result<usize>,
+    page: &glib::WeakRef<DeckPage>,
+    window: Option<&glib::WeakRef<RappelWindow>>,
+) {
+    let window = window.and_then(glib::WeakRef::upgrade);
+    match result {
+        Ok(0) => {
+            // Moved again, deleted, or its first deck is gone since.
+            let text = move_card::not_moved_back_text();
+            match window {
+                Some(window) => show_toast_from(&window, info_toast(&text)),
+                None => log_failure("a card operation", &text),
+            }
+        }
+        Ok(_) => match state.card(id) {
+            Ok(card) => {
+                if let Some(page) = page.upgrade() {
+                    page.restored(&card);
+                }
+                if let Some(window) = window {
+                    window.card_restored(&card);
+                }
+            }
+            Err(err) => undo_move_failed(&err, window.as_ref()),
+        },
+        Err(err) => undo_move_failed(&err, window.as_ref()),
+    }
+}
+
+/// An error toast for an Undo of a move that failed.
+fn undo_move_failed(err: &Error, window: Option<&RappelWindow>) {
+    // Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
+    let message = with_error(&gettext("The card could not be moved back: {error}"), err);
+    if let Some(window) = window {
+        show_error(window, "a card operation", &message);
+    } else {
+        log_failure("a card operation", &message);
+    }
+}
+
 /// The deck page's subtitle: "1,234 due · 20 new", or "Nothing to study"
 /// (the same counts as the deck list's rows, `ui::text::due_new_line`).
 fn study_subtitle(input: &StudyInput) -> String {
@@ -948,7 +1139,7 @@ fn row_factory(page: &DeckPage) -> gtk::SignalListItemFactory {
     card_row::factory(
         page,
         CardRow::default,
-        &["compact"],
+        &["compact", "can-move"],
         |row, card: &CardObject, item| {
             row.bind(card);
             // Screen readers read the front, the back and the tags, not "row"
@@ -1122,6 +1313,108 @@ mod tests {
             undo_suspend(&state, &ids[0], true, &page.downgrade(), None);
             assert_eq!(subtitle(), "2 due");
             assert!(!page.item(0).unwrap().card().suspended);
+        });
+    }
+
+    #[test]
+    fn move_to_deck_is_enabled_only_while_another_deck_exists() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state, page, _) = page_of(1);
+            assert!(!page.can_move(), "the only deck");
+            let other = state.create_deck("Other").unwrap();
+            // The page reads again after an import or a change elsewhere.
+            page.reload();
+            assert!(page.can_move());
+            state.delete_deck(&other.id).unwrap();
+            page.reload();
+            assert!(!page.can_move());
+        });
+    }
+
+    #[test]
+    fn a_moved_card_leaves_the_list_and_its_undo_brings_it_back() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state, page, ids) = page_of(3);
+            let other = state.create_deck("Other").unwrap();
+            let from = page.deck_id().unwrap();
+            let subtitle = || page.imp().window_title.subtitle().to_string();
+            assert_eq!(subtitle(), "3 due");
+            let list = || page.imp().cards.get().unwrap().n_items();
+
+            // The middle card goes: the focus is for the one now at its place.
+            let focus = page.finish_move(&state, &ids[1], &other);
+            assert_eq!(focus, Some(MovedFocus::Row(1)));
+            assert_eq!(list(), 2);
+            assert!(page.position(&ids[1]).is_none());
+            assert_eq!(state.card(&ids[1]).unwrap().deck_id, other.id);
+            assert_eq!(subtitle(), "2 due");
+
+            // The last one goes: the focus is for the new last row.
+            assert_eq!(
+                page.finish_move(&state, &ids[2], &other),
+                Some(MovedFocus::Row(0))
+            );
+            // The only one goes: the empty state.
+            assert_eq!(
+                page.finish_move(&state, &ids[0], &other),
+                Some(MovedFocus::EmptyState)
+            );
+            assert_eq!(list(), 0);
+            assert_eq!(
+                page.imp().content_stack.visible_child_name().as_deref(),
+                Some("empty")
+            );
+
+            // Undo of the first move: back in its place.
+            let moved = vec![rappel_core::storage::Moved {
+                card_id: ids[1].clone(),
+                from: from.clone(),
+                to: other.id.clone(),
+            }];
+            undo_card_move(
+                &state,
+                &ids[1],
+                state.unmove_cards(&moved),
+                &page.downgrade(),
+                None,
+            );
+            assert_eq!(state.card(&ids[1]).unwrap().deck_id, from);
+            assert_eq!(list(), 1);
+            assert!(page.position(&ids[1]).is_some());
+
+            // An Undo that could not move the card back adds nothing.
+            let gone = vec![rappel_core::storage::Moved {
+                card_id: ids[2].clone(),
+                from: from.clone(),
+                to: "another".to_owned(),
+            }];
+            undo_card_move(
+                &state,
+                &ids[2],
+                state.unmove_cards(&gone),
+                &page.downgrade(),
+                None,
+            );
+            assert_eq!(list(), 1);
+            assert_eq!(state.card(&ids[2]).unwrap().deck_id, other.id);
+        });
+    }
+
+    #[test]
+    fn a_card_that_is_gone_or_already_there_is_not_moved_twice() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state, page, ids) = page_of(2);
+            let other = state.create_deck("Other").unwrap();
+            // Moved behind the page's back: the list is stale.
+            state
+                .move_cards(std::slice::from_ref(&ids[0]), &other.id)
+                .unwrap();
+            assert_eq!(page.finish_move(&state, &ids[0], &other), None);
+            assert_eq!(page.imp().cards.get().unwrap().n_items(), 1, "read again");
+            // Deleted behind the page's back.
+            state.delete_card(&ids[1]).unwrap();
+            assert_eq!(page.finish_move(&state, &ids[1], &other), None);
+            assert_eq!(page.imp().cards.get().unwrap().n_items(), 0);
         });
     }
 

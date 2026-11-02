@@ -1,0 +1,153 @@
+//! Move to Deck… for one card (#102): the choice of a deck, shared by the
+//! deck page's card menu, All Cards' row menu and the review page's Card
+//! Menu, and the Undo toast they all offer. The dialog itself is All Cards'
+//! chooser (`browser_dialogs::choose`, layout in `data/browser_dialogs.blp`);
+//! the move and its Undo are core's `move_cards` and `unmove_cards` through
+//! `AppState`. What each page does with the card afterwards (the row leaves
+//! the list, the card leaves the session) is its own.
+
+use adw::prelude::*;
+use rappel_core::domain::Deck;
+use rappel_core::storage::Moved;
+
+use super::browser_dialogs;
+use crate::i18n::gettext;
+use crate::state::AppState;
+use crate::ui::toast::undo_toast;
+
+/// The decks a card of deck `from` can be moved to: every deck but its
+/// own, in the order given. Archived decks do not exist yet; phase 3a's
+/// archive slice leaves them out here.
+pub fn targets<'a>(decks: &'a [Deck], from: &str) -> Vec<&'a Deck> {
+    decks.iter().filter(|deck| deck.id != from).collect()
+}
+
+/// Whether Move to Deck… is offered. For a card of deck `from` it is when
+/// another deck exists. Where the card's deck is not known in advance (a
+/// list of cards of every deck), `from` is `None` and it is when there are
+/// two decks, since a card then has another one whatever its own. With no
+/// other deck the entry is disabled, as a dialog with nothing to choose
+/// would be a dead end.
+pub fn offered(decks: &[Deck], from: Option<&str>) -> bool {
+    match from {
+        Some(from) => decks.iter().any(|deck| deck.id != from),
+        None => decks.len() >= 2,
+    }
+}
+
+/// The chooser's heading.
+pub fn heading() -> String {
+    gettext("Move Card")
+}
+
+/// The chooser's text.
+pub fn body() -> String {
+    gettext("Choose the deck to move this card to.")
+}
+
+/// The Undo toast's title. Short, so it fits beside Undo at 360 px
+/// (ADR 0058), like "Card suspended".
+pub fn moved_text() -> String {
+    gettext("Card moved")
+}
+
+/// What to tell when the card could not be moved back: it was moved again
+/// or deleted since, or its first deck is gone.
+pub fn not_moved_back_text() -> String {
+    gettext("The card could not be moved back")
+}
+
+/// What to tell when there is no deck to move the card to (the last other
+/// deck was deleted since the menu was shown).
+pub fn no_other_deck_text() -> String {
+    gettext("No other deck to move it to")
+}
+
+/// Asks which of `targets` to move a card to, over `parent`, and returns
+/// the one chosen, or `None` if cancelled. Deck names are the user's own
+/// and are shown as plain text. `on_closed` is called once the dialog has
+/// closed, for the page to put the focus where the answer leaves it (see
+/// `browser_dialogs::choose_closing`).
+pub async fn choose_deck(
+    parent: &impl IsA<gtk::Widget>,
+    targets: Vec<Deck>,
+    on_closed: impl Fn() + 'static,
+) -> Option<Deck> {
+    let names: Vec<String> = targets.iter().map(|deck| deck.name.clone()).collect();
+    let chosen = browser_dialogs::choose_closing(
+        parent,
+        &heading(),
+        &body(),
+        &gettext("_Move"),
+        &names,
+        on_closed,
+    )
+    .await?;
+    targets.into_iter().nth(chosen)
+}
+
+/// The toast "Card moved" with Undo. Undo moves the cards in `moved` back
+/// and gives `after` the result (how many went back); it keeps the state,
+/// not a page, so it works after the page was left.
+pub fn moved_toast(
+    state: &AppState,
+    moved: Vec<Moved>,
+    after: impl Fn(rappel_core::Result<usize>) + 'static,
+) -> adw::Toast {
+    let state = state.clone();
+    undo_toast(&moved_text(), move || after(state.unmove_cards(&moved)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn deck(id: &str) -> Deck {
+        Deck {
+            id: id.to_owned(),
+            name: format!("Deck {id}"),
+            created_at: 0,
+            updated_at: 0,
+        }
+    }
+
+    #[test]
+    fn the_cards_own_deck_is_not_offered() {
+        let decks = [deck("a"), deck("b"), deck("c")];
+        let ids = |from| -> Vec<&str> {
+            targets(&decks, from)
+                .into_iter()
+                .map(|d| d.id.as_str())
+                .collect()
+        };
+        assert_eq!(ids("a"), ["b", "c"]);
+        assert_eq!(ids("b"), ["a", "c"]);
+        // A deck that is not in the list (deleted meanwhile) removes nothing.
+        assert_eq!(ids("z"), ["a", "b", "c"]);
+    }
+
+    #[test]
+    fn the_entry_is_offered_only_with_another_deck() {
+        let one = [deck("a")];
+        let two = [deck("a"), deck("b")];
+        assert!(!offered(&[], Some("a")));
+        assert!(!offered(&one, Some("a")));
+        assert!(offered(&two, Some("a")));
+        // A card whose deck is not in the list can go to any deck there.
+        assert!(offered(&one, Some("z")));
+        // Where the card's deck is not known: two decks are needed.
+        assert!(!offered(&[], None));
+        assert!(!offered(&one, None));
+        assert!(offered(&two, None));
+    }
+
+    #[test]
+    fn the_texts_fit_a_toast() {
+        use crate::ui::toast::{TOAST_FITS, TOAST_FITS_WITH_BUTTON};
+        assert!(moved_text().chars().count() <= TOAST_FITS_WITH_BUTTON);
+        for text in [not_moved_back_text(), no_other_deck_text()] {
+            assert!(text.chars().count() <= TOAST_FITS, "{text}");
+        }
+        assert!(!body().contains('{') && !heading().contains('{'));
+    }
+}

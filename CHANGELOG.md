@@ -6,8 +6,16 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Move to Deck…** in each card's ⋮ menu on the deck page and All Cards, and in the review page's Card Menu next to Suspend. It asks for a deck (never the card's own; the entry is disabled when there is no other deck), moves the card at once, and offers Undo ("Card moved"). During review the card leaves the session as with Suspend, nothing is counted as answered, and Undo brings it back as the next card (ADR 0064, #102).
+- **Ctrl+A chooses every card listed on All Cards**, whatever on the page has the keyboard (the list, a filter, the Select button), and starts selecting if you were not. In the search field it still selects the text. When selecting starts from the Select button (by Ctrl+A, or Enter or Space on it), the keyboard focus goes to the card list (ADR 0064, #106).
+
 ### Changed
+- **The review page has no key hints under its buttons.** The Show Answer, Fail and Pass buttons say their key in their tooltip ("Pass (2)", "Fail (1)", "Show Answer (Space)"), and still in their accessible description; the Keyboard Shortcuts dialog is unchanged (ADR 0064, #105).
 - Roadmap (SPEC §4, §5): phase 3a, organising and studying, ends in 0.4.0; phase 3b, publishing (a Snap, a self-hosted Flatpak, the finished metainfo and icon), ends in 1.0. 0.2.0 and 0.3.0 are not released as stable.
+
+### Fixed
+- **A Markdown table's border hugs its columns.** On a wide window a small table's border stretched across the whole card with an empty strip inside it; the grid is now as wide as its columns and sits at the start, and a table wider than the window still scrolls sideways (ADR 0019, #32).
 
 ### Security
 - `pulldown-cmark` updated to 0.13.6 for RUSTSEC-2026-0414 and RUSTSEC-2026-0433. Rappel never enabled wikilinks, so it was not affected (#108).

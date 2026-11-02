@@ -1,7 +1,8 @@
 //! One row of a list of cards (ADR 0042, 0044): the front as the title,
 //! the back dimmed under it with the tags as pills at the end of that line,
 //! an icon when the card is suspended, and a menu with Edit, Card
-//! Information, Suspend or Unsuspend, Reset Progress and Delete. The deck
+//! Information, Suspend or Unsuspend, Reset Progress, Move to Deck… and
+//! Delete. The deck
 //! page and All Cards use the same row, so both lists look and cost the
 //! same; on All Cards ([`CardRow::for_browser`]) a third line says the deck
 //! and the status, and a check button shows while cards are being chosen.
@@ -14,9 +15,9 @@
 //! shows fewer pills; `selecting` (All Cards) shows the check button
 //! instead of the menu. As in `DeckRow`, the menu items activate the row's
 //! own `row.edit` / `row.info` / `row.suspend` / `row.unsuspend` /
-//! `row.reset` / `row.delete` actions, which forward to the page's
-//! `edit-card` / `card-info` / `suspend-card` / `unsuspend-card` /
-//! `reset-card` / `delete-card` actions (in the `deck.` or `browser.`
+//! `row.reset` / `row.move` / `row.delete` actions, which forward to the
+//! page's `edit-card` / `card-info` / `suspend-card` / `unsuspend-card` /
+//! `reset-card` / `move-card` / `delete-card` actions (in the `deck.` or `browser.`
 //! group) with the bound card's id.
 
 use adw::prelude::*;
@@ -64,6 +65,10 @@ mod imp {
         /// menu does not.
         #[property(get, set)]
         pub selecting: Cell<bool>,
+        /// Another deck exists to move the card to (the page's, from
+        /// `dialogs::move_card::offered`): Move to Deck… is enabled.
+        #[property(get, set)]
+        pub can_move: Cell<bool>,
         #[template_child]
         pub menu_button: TemplateChild<gtk::MenuButton>,
         #[template_child]
@@ -107,6 +112,9 @@ mod imp {
             klass.install_action("row.reset", None, |row, _, _| {
                 row.forward("reset-card");
             });
+            klass.install_action("row.move", None, |row, _, _| {
+                row.forward("move-card");
+            });
             klass.install_action("row.delete", None, |row, _, _| {
                 row.forward("delete-card");
             });
@@ -126,6 +134,10 @@ mod imp {
             row.connect_compact_notify(super::CardRow::update_pill_count);
             row.update_pill_count();
             row.connect_selecting_notify(super::CardRow::update_selection);
+            // `gtk_widget_action_set_enabled` (GtkWidget docs): a menu item
+            // naming a disabled action is insensitive.
+            row.connect_can_move_notify(|row| row.action_set_enabled("row.move", row.can_move()));
+            row.action_set_enabled("row.move", row.can_move());
         }
     }
     impl WidgetImpl for CardRow {}
@@ -539,6 +551,58 @@ mod tests {
                 *got.borrow(),
                 ["deck.edit-card card-00003", "browser.edit-card card-00004"]
             );
+        });
+    }
+
+    /// Move to Deck… sits above Delete in the card menu, is disabled until
+    /// the page says another deck exists (`can-move`), and forwards to the
+    /// page's `move-card` with the card's id.
+    #[test]
+    fn move_to_deck_follows_the_page_and_forwards_to_it() {
+        crate::testing::with_widgets(|| {
+            use std::cell::RefCell;
+            use std::rc::Rc;
+
+            let row = CardRow::default();
+            let menu = row.imp().card_menu.get();
+            let mut actions = Vec::new();
+            for section in 0..menu.n_items() {
+                let Some(items) = menu.item_link(section, "section") else {
+                    continue;
+                };
+                for i in 0..items.n_items() {
+                    actions.extend(
+                        items
+                            .item_attribute_value(i, "action", Some(glib::VariantTy::STRING))
+                            .and_then(|v| v.get::<String>()),
+                    );
+                }
+            }
+            let at = |name: &str| actions.iter().position(|a| a == name).unwrap();
+            assert_eq!(at("row.move") + 1, at("row.delete"), "{actions:?}");
+
+            let got: Rc<RefCell<Vec<String>>> = Rc::default();
+            let group = gtk::gio::SimpleActionGroup::new();
+            let action = gtk::gio::SimpleAction::new("move-card", Some(glib::VariantTy::STRING));
+            let seen = got.clone();
+            action.connect_activate(move |_, id| {
+                let id = id.and_then(glib::Variant::str).unwrap_or_default();
+                seen.borrow_mut().push(id.to_owned());
+            });
+            group.add_action(&action);
+            let outer = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            outer.insert_action_group("deck", Some(&group));
+            outer.append(&row);
+            row.bind(&card(3));
+
+            // No other deck known: the item is insensitive and does nothing.
+            assert!(!row.can_move());
+            let _ = row.activate_action("row.move", None);
+            assert!(got.borrow().is_empty());
+
+            row.set_can_move(true);
+            row.activate_action("row.move", None).unwrap();
+            assert_eq!(*got.borrow(), ["card-00003"]);
         });
     }
 

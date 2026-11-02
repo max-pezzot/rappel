@@ -19,7 +19,7 @@ use rappel_core::domain::{Card, Deck, Tag};
 use rappel_core::storage::BrowseQuery;
 
 use crate::dialogs::card_editor::{CardEditor, Saved};
-use crate::dialogs::{browser_dialogs, card_info};
+use crate::dialogs::{browser_dialogs, card_info, move_card};
 use crate::state::AppState;
 use crate::ui::focus::index_after_removal;
 use crate::ui::text::one_line;
@@ -105,6 +105,10 @@ mod imp {
         /// Cards are being chosen; the rows follow it.
         #[property(get, set)]
         pub selecting: Cell<bool>,
+        /// There are two decks or more, so any card has another deck to move
+        /// to: the rows' Move to Deck… is enabled (`move_card::offered`).
+        #[property(get, set)]
+        pub can_move: Cell<bool>,
         pub state: OnceCell<AppState>,
         pub items: OnceCell<gio::ListStore>,
         pub selection: RefCell<Selection>,
@@ -146,6 +150,7 @@ mod imp {
             rows::install_id_action(klass, "browser.reset-card", |page, id| {
                 page.run_on(id, super::Bulk::Reset);
             });
+            rows::install_id_action(klass, "browser.move-card", super::BrowserPage::move_card);
             rows::install_id_action(klass, "browser.delete-card", |page, id| {
                 page.run_on(id, super::Bulk::Delete);
             });
@@ -212,11 +217,30 @@ glib::wrapper! {
 #[derive(Debug, Clone)]
 enum Bulk {
     Suspend(bool),
-    Move { deck_id: String },
+    Move {
+        deck_id: String,
+    },
+    /// Move from one card's menu: the same, with a toast for one card.
+    MoveOne {
+        deck_id: String,
+    },
     AddTags(Vec<String>),
     RemoveTag(Tag),
     Reset,
     Delete,
+}
+
+/// The decks a card of deck `from` can be moved to from its menu: `None`
+/// when the card is not listed (nothing to do), else every deck but its own
+/// (empty: no other deck, so only a notice).
+fn card_move_targets(decks: &[Deck], from: Option<&str>) -> Option<Vec<Deck>> {
+    let from = from?;
+    Some(
+        move_card::targets(decks, from)
+            .into_iter()
+            .cloned()
+            .collect(),
+    )
 }
 
 /// Takes a bulk action back; returns how many cards it restored.
@@ -243,6 +267,7 @@ fn perform(
     action: Bulk,
     now: i64,
 ) -> rappel_core::Result<Result<Done, String>> {
+    let one_card = matches!(action, Bulk::MoveOne { .. });
     let done = match action {
         Bulk::Suspend(suspended) => {
             let changed = state.set_suspended(ids, suspended)?;
@@ -253,11 +278,15 @@ fn perform(
                 undo: Box::new(move |s| s.restore_suspended(&changed, !suspended)),
             }
         }
-        Bulk::Move { deck_id } => {
+        Bulk::Move { deck_id } | Bulk::MoveOne { deck_id } => {
             let moved = state.move_cards(ids, &deck_id)?;
             Done {
                 note: None,
-                text: text::moved_text(moved.len()),
+                text: if one_card {
+                    move_card::moved_text()
+                } else {
+                    text::moved_text(moved.len())
+                },
                 total: moved.len(),
                 undo: Box::new(move |s| s.unmove_cards(&moved)),
             }
@@ -500,11 +529,24 @@ impl BrowserPage {
         self.imp().content_stack.add_controller(keys);
     }
 
-    /// Ctrl+A and Space on the list. Capture phase on the list, so they come
-    /// before the list view's own bindings (`list.select-all` and the item's
-    /// `listitem.select` do nothing on a list without a selection model).
-    /// The search field is not under the list, so it keeps its own Ctrl+A.
+    /// Space on the list, and Ctrl+A on the page.
+    ///
+    /// Space: capture phase on the list, so it comes before the list view's
+    /// own bindings (the item's `listitem.select` does nothing on a list
+    /// without a selection model).
+    ///
+    /// Ctrl+A (#106): `ui::select_all`, a capture controller on the whole
+    /// page that leaves the key to a text field with the focus (the search
+    /// entry selects its text); see there for the GTK sources.
     fn add_list_shortcuts(&self) {
+        let _ = crate::ui::select_all::install(
+            self,
+            glib::clone!(
+                #[weak(rename_to = page)]
+                self,
+                move || page.select_all()
+            ),
+        );
         let keys = gtk::EventControllerKey::new();
         keys.set_propagation_phase(gtk::PropagationPhase::Capture);
         keys.connect_key_pressed(glib::clone!(
@@ -513,10 +555,6 @@ impl BrowserPage {
             #[upgrade_or]
             glib::Propagation::Proceed,
             move |_, key, _, modifiers| match text::list_key(key, modifiers) {
-                Some(ListKey::SelectAll) => {
-                    page.select_all();
-                    glib::Propagation::Stop
-                }
                 Some(ListKey::Space) => {
                     let selecting = page.imp().selection.borrow().active();
                     match text::space_action(selecting, page.row_has_focus()) {
@@ -595,7 +633,7 @@ impl BrowserPage {
         card_row::factory(
             self,
             CardRow::for_browser,
-            &["compact", "selecting"],
+            &["compact", "selecting", "can-move"],
             CardRow::bind_browse,
         )
     }
@@ -642,6 +680,7 @@ impl BrowserPage {
                 .and_then(|id| tags.iter().position(|t| &t.id == id)),
         ));
         imp.quiet.set(false);
+        self.set_can_move(move_card::offered(&decks, None));
         imp.decks.replace(decks);
         imp.tags.replace(tags);
         Ok(())
@@ -813,6 +852,8 @@ impl BrowserPage {
         self.update_selection_ui();
     }
 
+    /// Chooses every card the filters list, entering selection mode if
+    /// needed (Ctrl+A, Select All; #106). Nothing to choose, nothing done.
     fn select_all(&self) {
         let imp = self.imp();
         let ids = self.ids();
@@ -908,6 +949,13 @@ impl BrowserPage {
             // A header button about to hide must not keep the keyboard: it
             // goes to the Select button that takes its place.
             let header_focus = imp.select_all_button.has_focus() || imp.cancel_button.has_focus();
+            // Entering the mode hides the Select button the same way (Ctrl+A
+            // does it from anywhere): the keyboard goes to the list, or to
+            // Cancel when there is no list to go to.
+            // The window's focus widget, not `has_focus`, which is false while
+            // the window is not the active one.
+            let select_focus = imp.select_button.root().and_then(|root| root.focus())
+                == Some(imp.select_button.get().upcast());
             self.set_selecting(active);
             // The header of selection mode (HIG): how many are chosen, Select
             // All and Cancel; Back hides and Escape does not go back
@@ -921,6 +969,13 @@ impl BrowserPage {
             imp.action_bar.set_revealed(active);
             if header_focus && !active {
                 imp.select_button.grab_focus();
+            }
+            if select_focus && active {
+                if imp.content_stack.visible_child_name().as_deref() == Some("list") {
+                    imp.card_list.grab_focus();
+                } else {
+                    imp.cancel_button.grab_focus();
+                }
             }
         }
         imp.selection_title.set_title(&text::selection_title(n));
@@ -1084,6 +1139,52 @@ impl BrowserPage {
     fn suspend_selected(&self) {
         let suspend = self.suspend_choice() == SuspendChoice::Suspend;
         self.run_selected(Bulk::Suspend(suspend));
+    }
+
+    /// A card's menu: Move to Deck… for one card. Its own deck is not
+    /// offered (`move_card::targets`); the move and its Undo are the bulk
+    /// action's.
+    fn move_card(&self, id: &str) {
+        let from = self
+            .position(id)
+            .and_then(|p| self.item(p))
+            .map(|item| item.row().card.deck_id.clone());
+        let Some(targets) = card_move_targets(&self.imp().decks.borrow(), from.as_deref()) else {
+            return;
+        };
+        if targets.is_empty() {
+            show_toast_from(self, info_toast(&move_card::no_other_deck_text()));
+            return;
+        }
+        let id = id.to_owned();
+        let first = self.position(&id);
+        glib::spawn_future_local(glib::clone!(
+            #[weak(rename_to = page)]
+            self,
+            async move {
+                // The dialog gives the focus back to the widget that had it
+                // (a row's menu button, bound to another card by then) when
+                // it closes, after the answer: `run` focuses again then.
+                let moved = std::rc::Rc::new(std::cell::Cell::new(false));
+                let closed = glib::clone!(
+                    #[weak]
+                    page,
+                    #[strong]
+                    moved,
+                    #[strong]
+                    id,
+                    move || {
+                        if moved.get() {
+                            page.refocus(first, Some(&id));
+                        }
+                    }
+                );
+                if let Some(deck) = move_card::choose_deck(&page, targets, closed).await {
+                    page.run_on(&id, Bulk::MoveOne { deck_id: deck.id });
+                    moved.set(true);
+                }
+            }
+        ));
     }
 
     fn move_selected(&self) {
@@ -1595,6 +1696,184 @@ mod tests {
             assert_eq!(shown(&page).len(), 4);
             assert_eq!(imp.search_entry.text(), "");
             assert_eq!(imp.deck_filter.selected(), 0);
+        });
+    }
+
+    /// Presses `key` with `modifiers` on the page's Ctrl+A controller, as
+    /// a key press that reached the page would. Returns whether it handled
+    /// the key (a handled key goes no further).
+    fn press_select_all(page: &BrowserPage, key: gtk::gdk::Key) -> bool {
+        use gtk::gdk::ModifierType;
+        let controller = page
+            .observe_controllers()
+            .iter::<glib::Object>()
+            .filter_map(Result::ok)
+            .filter_map(|c| c.downcast::<gtk::EventControllerKey>().ok())
+            .find(|c| c.name().as_deref() == Some(crate::ui::select_all::CONTROLLER_NAME))
+            .expect("the page installs its Ctrl+A controller");
+        assert_eq!(
+            controller.propagation_phase(),
+            gtk::PropagationPhase::Capture
+        );
+        controller.emit_by_name::<bool>("key-pressed", &[&key, &0u32, &ModifierType::CONTROL_MASK])
+    }
+
+    #[test]
+    fn ctrl_a_chooses_every_card_listed_and_enters_selection_mode() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state, ids, maths) = state_with_cards();
+            let page = page_over(&state, Some(&maths));
+            let window = gtk::Window::builder().child(&page).build();
+            let imp = page.imp();
+            assert!(!page.selecting());
+            // With the list focused, the filter's cards (3 of 4) are chosen.
+            gtk::prelude::GtkWindowExt::set_focus(&window, Some(&*imp.card_list));
+            assert!(press_select_all(&page, gtk::gdk::Key::a));
+            assert!(page.selecting() && imp.action_bar.is_revealed());
+            assert_eq!(imp.selection_title.title(), "3 Selected");
+            let mut chosen = page.chosen_ids();
+            chosen.sort();
+            let mut expected = ids.clone();
+            expected.sort();
+            assert_eq!(chosen, expected);
+            // Again: still those 3.
+            assert!(press_select_all(&page, gtk::gdk::Key::A));
+            assert_eq!(page.chosen_ids().len(), 3);
+        });
+    }
+
+    #[test]
+    fn ctrl_a_from_the_select_button_moves_the_focus_to_the_list() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state, _, _) = state_with_cards();
+            let page = page_over(&state, None);
+            let window = gtk::Window::builder().child(&page).build();
+            let imp = page.imp();
+            gtk::prelude::GtkWindowExt::set_focus(&window, Some(&*imp.select_button));
+            assert!(press_select_all(&page, gtk::gdk::Key::a));
+            assert_eq!(page.chosen_ids().len(), 4);
+            assert!(!imp.select_button.is_visible());
+            assert!(
+                gtk::prelude::GtkWindowExt::focus(&window)
+                    .is_some_and(|w| w.is_ancestor(&*imp.card_list) || w == *imp.card_list),
+                "the focus went to the list, not nowhere"
+            );
+        });
+    }
+
+    #[test]
+    fn ctrl_a_in_the_search_field_selects_its_text_not_the_cards() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state, _, _) = state_with_cards();
+            let page = page_over(&state, None);
+            let window = gtk::Window::builder().child(&page).build();
+            let imp = page.imp();
+            let field = imp
+                .search_entry
+                .delegate()
+                .expect("a search entry has its text");
+            gtk::prelude::GtkWindowExt::set_focus(&window, Some(&field));
+            assert!(
+                !press_select_all(&page, gtk::gdk::Key::a),
+                "the page leaves the key to the text field"
+            );
+            assert!(!page.selecting());
+            assert_eq!(page.chosen_ids().len(), 0);
+        });
+    }
+
+    #[test]
+    fn a_card_menu_offers_move_to_deck_with_two_decks_or_more() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state, _, _) = state_with_cards();
+            let page = page_over(&state, None);
+            assert!(page.can_move());
+
+            // One deck: nowhere to move a card to.
+            let (_tmp, one) = crate::testing::temporary_state();
+            let deck = one.create_deck("Only").unwrap();
+            one.add_card_with_tags(&deck.id, "q", "a", &[]).unwrap();
+            let page = page_over(&one, None);
+            assert!(!page.can_move());
+            // A second deck, then an import or a change elsewhere.
+            one.create_deck("Second").unwrap();
+            page.reload_all();
+            assert!(page.can_move());
+        });
+    }
+
+    #[test]
+    fn a_cards_move_targets_leave_out_its_own_deck() {
+        let deck = |id: &str| Deck {
+            id: id.to_owned(),
+            name: id.to_owned(),
+            created_at: 0,
+            updated_at: 0,
+        };
+        let decks = [deck("a"), deck("b")];
+        let ids = |targets: Option<Vec<Deck>>| -> Option<Vec<String>> {
+            targets.map(|t| t.into_iter().map(|d| d.id).collect())
+        };
+        assert_eq!(
+            ids(card_move_targets(&decks, Some("a"))),
+            Some(vec!["b".to_owned()])
+        );
+        // One deck: nothing to choose, so only a notice.
+        assert_eq!(ids(card_move_targets(&decks[..1], Some("a"))), Some(vec![]));
+        // A card that is not listed: nothing is done at all.
+        assert_eq!(card_move_targets(&decks, None), None);
+    }
+
+    #[test]
+    fn a_move_from_a_card_menu_says_card_moved_and_undoes() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state, ids, _) = state_with_cards();
+            let art = state
+                .decks()
+                .unwrap()
+                .into_iter()
+                .find(|d| d.name == "Art")
+                .unwrap();
+            let now = rappel_core::time::now_ms();
+            let done = perform(
+                &state,
+                &ids[..1],
+                Bulk::MoveOne {
+                    deck_id: art.id.clone(),
+                },
+                now,
+            )
+            .unwrap()
+            .unwrap();
+            assert_eq!(done.text, "Card moved");
+            assert_eq!(state.card(&ids[0]).unwrap().deck_id, art.id);
+            assert_eq!((done.undo)(&state).unwrap(), 1);
+            // The bulk action keeps counting.
+            let done = perform(&state, &ids[..1], Bulk::Move { deck_id: art.id }, now)
+                .unwrap()
+                .unwrap();
+            assert_eq!(done.text, "1 card moved");
+        });
+    }
+
+    /// Pressing Select (Enter or Space on it) hides it, so the focus goes
+    /// to the list (Ctrl+A does the same through the same code).
+    #[test]
+    fn pressing_select_moves_the_focus_to_the_list() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state, _, _) = state_with_cards();
+            let page = page_over(&state, None);
+            let window = gtk::Window::builder().child(&page).build();
+            let imp = page.imp();
+            gtk::prelude::GtkWindowExt::set_focus(&window, Some(&*imp.select_button));
+            imp.select_button.emit_clicked();
+            assert!(page.selecting());
+            assert!(!imp.select_button.is_visible());
+            assert!(
+                gtk::prelude::GtkWindowExt::focus(&window)
+                    .is_some_and(|w| w == *imp.card_list || w.is_ancestor(&*imp.card_list)),
+                "the focus is in the list, not nowhere"
+            );
         });
     }
 

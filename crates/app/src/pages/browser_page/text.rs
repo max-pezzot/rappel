@@ -211,11 +211,10 @@ pub fn filters_shown(empty: Empty) -> bool {
     empty != Empty::NoCards
 }
 
-/// A key of the card list's own (besides Escape, [`ESCAPE_KEY`]).
+/// A key of the card list's own (besides Escape, [`ESCAPE_KEY`], and Ctrl+A,
+/// which the whole page takes: `ui::select_all`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ListKey {
-    /// Ctrl+A: choose every card shown.
-    SelectAll,
     /// Space, as [`space_action`] decides.
     Space,
 }
@@ -223,11 +222,8 @@ pub enum ListKey {
 /// The card list's keys: a key, whether it is taken only with Ctrl (`true`)
 /// or only without it (`false`), and what it is. Other modifiers do not
 /// matter. The Keyboard Shortcuts dialog lists them (a test checks it).
-pub const LIST_KEYS: [(gtk::gdk::Key, bool, ListKey); 3] = [
-    (gtk::gdk::Key::a, true, ListKey::SelectAll),
-    (gtk::gdk::Key::A, true, ListKey::SelectAll),
-    (gtk::gdk::Key::space, false, ListKey::Space),
-];
+pub const LIST_KEYS: [(gtk::gdk::Key, bool, ListKey); 1] =
+    [(gtk::gdk::Key::space, false, ListKey::Space)];
 
 /// The key that moves from the search field to the list, whatever the
 /// modifiers.
@@ -603,16 +599,9 @@ mod tests {
         use gtk::gdk::{Key, ModifierType};
         let ctrl = ModifierType::CONTROL_MASK;
         let none = ModifierType::empty();
-        assert_eq!(list_key(Key::a, ctrl), Some(ListKey::SelectAll));
-        assert_eq!(
-            list_key(Key::A, ctrl | ModifierType::SHIFT_MASK),
-            Some(ListKey::SelectAll)
-        );
-        assert_eq!(
-            list_key(Key::a, none),
-            None,
-            "a plain a types into the search"
-        );
+        // Ctrl+A is the page's (`ui::select_all`), not the list's.
+        assert_eq!(list_key(Key::a, ctrl), None);
+        assert_eq!(list_key(Key::a, none), None);
         assert_eq!(list_key(Key::space, none), Some(ListKey::Space));
         assert_eq!(
             list_key(Key::space, ModifierType::SHIFT_MASK),
