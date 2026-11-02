@@ -31,3 +31,4 @@ At the maintainer's request, to stop spending CI time on changes the gate cannot
 - `check` needs `changes` and is skipped for a docs-only pull request. GitHub counts a job skipped by its `if` as a success for a required status check, so the ruleset still lets the pull request merge.
 - Fail-safe: `check` runs whenever `changes` did not succeed, and for every push to `main`. An empty file list runs it too. The gate itself is unchanged.
 - Consequence: a test that starts reading a file under `docs/`, `.claude/` or a top-level Markdown file must add it to the exception in `ci.yml`, as `CHANGELOG.md` is.
+- Corrected the same day (the review of #111): the list is taken with `--no-renames`, so a rename lists its old path too (moving a source file into `docs/` is not docs-only), and the classification pipes nothing into `grep -q`, which under GitHub's `bash -eo pipefail` could make the writer die of `SIGPIPE` and read a long list of code files as docs-only.
