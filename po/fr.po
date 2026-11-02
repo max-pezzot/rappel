@@ -12,6 +12,20 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n > 1);\n"
 
+#: crates/app/data/archived_page.blp
+#: crates/app/data/browser_page.blp
+#: crates/app/data/decks_page.blp
+msgid "Archived Decks"
+msgstr "Paquets archivés"
+
+#: crates/app/data/archived_page.blp
+msgid "No Archived Decks"
+msgstr "Aucun paquet archivé"
+
+#: crates/app/data/archived_page.blp
+msgid "Decks you archive show up here"
+msgstr "Les paquets que vous archivez apparaissent ici"
+
 #: crates/app/data/backup_row.blp
 #: crates/app/data/restore_dialog.blp
 msgid "_Restore"
@@ -337,6 +351,11 @@ msgstr "_Statistiques"
 msgid "_Merge Into…"
 msgstr "_Fusionner dans…"
 
+#: crates/app/data/deck_page.blp
+#: crates/app/data/deck_row.blp
+msgid "_Archive"
+msgstr "_Archiver"
+
 #: crates/app/data/deck_row.blp
 msgid "Deck Actions"
 msgstr "Actions sur le paquet"
@@ -366,14 +385,6 @@ msgstr "Menu principal"
 #: crates/app/data/shortcuts-dialog.blp
 msgid "Search All Cards"
 msgstr "Rechercher dans toutes les cartes"
-
-#: crates/app/data/decks_page.blp
-msgid "No Decks Yet"
-msgstr "Pas encore de paquets"
-
-#: crates/app/data/decks_page.blp
-msgid "Create a deck to start adding cards"
-msgstr "Créez un paquet pour commencer à ajouter des cartes"
 
 #: crates/app/data/decks_page.blp
 msgid "_Create Deck"
@@ -1164,6 +1175,11 @@ msgstr "La remise en place des fichiers s’est arrêtée de façon inattendue"
 msgid "A deck named “{name}” already exists"
 msgstr "Un paquet nommé « {name} » existe déjà"
 
+#. Translators: {name} is the name of one of the user's decks, which is archived (in Archived Decks, at the end of the deck list).
+#: crates/app/src/dialogs/deck_name_dialog.rs
+msgid "An archived deck is named “{name}”"
+msgstr "Un paquet archivé s’appelle « {name} »"
+
 #. Translators: {limit} is a number of bytes (1,024).
 #: crates/app/src/dialogs/deck_name_dialog.rs
 msgid "The name is too long (the limit is {limit} bytes)"
@@ -1204,6 +1220,7 @@ msgstr "Fusionner dans"
 
 #. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
 #: crates/app/src/dialogs/merge_deck.rs
+#: crates/app/src/pages/archived_page.rs
 #: crates/app/src/pages/browser_page.rs
 #: crates/app/src/pages/deck_page.rs
 #: crates/app/src/pages/decks_page.rs
@@ -1289,6 +1306,72 @@ msgstr "Création du dossier impossible : {error}"
 msgid "The backup folder could not be opened: {error}"
 msgstr "Ouverture du dossier impossible : {error}"
 
+#. Translators: read with the "Archived Decks" row of the deck list; {count} is how many decks are archived.
+#. Translators: {count} is a number of decks.
+#: crates/app/src/pages/archived_page/text.rs
+#: crates/app/src/ui/text.rs
+msgid "{count} deck"
+msgid_plural "{count} decks"
+msgstr[0] "{count} paquet"
+msgstr[1] "{count} paquets"
+
+#: crates/app/src/pages/archived_page/text.rs
+msgid "No Decks Yet"
+msgstr "Pas encore de paquets"
+
+#: crates/app/src/pages/archived_page/text.rs
+msgid "Create a deck to start adding cards"
+msgstr "Créez un paquet pour commencer à ajouter des cartes"
+
+#: crates/app/src/pages/archived_page/text.rs
+msgid "Every Deck Is Archived"
+msgstr "Tous les paquets sont archivés"
+
+#: crates/app/src/pages/archived_page/text.rs
+msgid "Create a deck, or unarchive one to study it again"
+msgstr "Créez un paquet, ou désarchivez-en un pour l’étudier à nouveau"
+
+#: crates/app/src/pages/archived_page/text.rs
+#: crates/app/src/pages/browser_page/text.rs
+msgid "No cards"
+msgstr "Aucune carte"
+
+#. Translators: {count} is a number of cards.
+#: crates/app/src/pages/archived_page/text.rs
+#: crates/app/src/pages/browser_page/text.rs
+#: crates/app/src/ui/text.rs
+msgid "{count} card"
+msgid_plural "{count} cards"
+msgstr[0] "{count} carte"
+msgstr[1] "{count} cartes"
+
+#: crates/app/src/pages/archived_page/text.rs
+msgid "Unarchive"
+msgstr "Désarchiver"
+
+#. Translators: the tooltip of an archived deck's Unarchive button; {name} is the deck's name.
+#: crates/app/src/pages/archived_page/text.rs
+msgid "Unarchive “{name}”"
+msgstr "Désarchiver « {name} »"
+
+#: crates/app/src/pages/archived_page/text.rs
+msgid "Deck archived"
+msgstr "Paquet archivé"
+
+#: crates/app/src/pages/archived_page/text.rs
+msgid "Deck unarchived"
+msgstr "Paquet désarchivé"
+
+#. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
+#: crates/app/src/pages/archived_page/text.rs
+msgid "The deck could not be archived: {error}"
+msgstr "Archivage du paquet impossible : {error}"
+
+#. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
+#: crates/app/src/pages/archived_page/text.rs
+msgid "The deck could not be unarchived: {error}"
+msgstr "Désarchivage du paquet impossible : {error}"
+
 #. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
 #: crates/app/src/pages/browser_page.rs
 #: crates/app/src/pages/deck_page.rs
@@ -1323,10 +1406,6 @@ msgid "{card}, deck: {deck}, {status}"
 msgstr "{card}, paquet : {deck}, {status}"
 
 #: crates/app/src/pages/browser_page/text.rs
-msgid "No cards"
-msgstr "Aucune carte"
-
-#: crates/app/src/pages/browser_page/text.rs
 msgid "Cards you add to your decks will show up here"
 msgstr "Les cartes ajoutées à vos paquets apparaîtront ici"
 
@@ -1337,6 +1416,18 @@ msgstr "Aucun résultat"
 #: crates/app/src/pages/browser_page/text.rs
 msgid "Try a different search or other filters"
 msgstr "Essayez une autre recherche ou d’autres filtres"
+
+#: crates/app/src/pages/browser_page/text.rs
+msgid "Only Archived Cards"
+msgstr "Seulement des cartes archivées"
+
+#: crates/app/src/pages/browser_page/text.rs
+msgid "The cards of archived decks are hidden"
+msgstr "Les cartes des paquets archivés sont masquées"
+
+#: crates/app/src/pages/browser_page/text.rs
+msgid "_Show Archived Decks"
+msgstr "_Afficher les paquets archivés"
 
 #: crates/app/src/pages/browser_page/text.rs
 msgid "_Go to Decks"
@@ -1354,6 +1445,21 @@ msgstr "_Effacer les filtres"
 msgid "_Clear Search and Filters"
 msgstr "_Effacer la recherche et les filtres"
 
+#. Translators: All Cards' filter of archived decks: their cards are not listed. Short: it shares a phone's width with three other filters.
+#: crates/app/src/pages/browser_page/text.rs
+msgid "Archived Hidden"
+msgstr "Archivés masqués"
+
+#. Translators: All Cards' filter of archived decks: their cards are listed too.
+#: crates/app/src/pages/browser_page/text.rs
+msgid "Archived Shown"
+msgstr "Archivés affichés"
+
+#. Translators: an archived deck in All Cards' deck filter; {name} is the deck's name.
+#: crates/app/src/pages/browser_page/text.rs
+msgid "{name} (archived)"
+msgstr "{name} (archivé)"
+
 #: crates/app/src/pages/browser_page/text.rs
 #: crates/app/src/pages/stats_page.rs
 msgid "All Decks"
@@ -1362,14 +1468,6 @@ msgstr "Tous les paquets"
 #: crates/app/src/pages/browser_page/text.rs
 msgid "All Tags"
 msgstr "Toutes les étiquettes"
-
-#. Translators: {count} is a number of cards.
-#: crates/app/src/pages/browser_page/text.rs
-#: crates/app/src/ui/text.rs
-msgid "{count} card"
-msgid_plural "{count} cards"
-msgstr[0] "{count} carte"
-msgstr[1] "{count} cartes"
 
 #. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
 #: crates/app/src/pages/deck_page.rs
@@ -2681,13 +2779,6 @@ msgstr[1] "{count} nouvelles"
 #: crates/app/src/ui/text.rs
 msgid "{due} · {new}"
 msgstr "{due} · {new}"
-
-#. Translators: {count} is a number of decks.
-#: crates/app/src/ui/text.rs
-msgid "{count} deck"
-msgid_plural "{count} decks"
-msgstr[0] "{count} paquet"
-msgstr[1] "{count} paquets"
 
 #. Translators: a time in seconds ("45 s").
 #: crates/app/src/ui/text.rs

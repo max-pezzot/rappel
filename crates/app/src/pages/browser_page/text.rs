@@ -5,7 +5,7 @@
 //! title, the action bar, the dialogs, the Undo toasts, Space) are shared
 //! with a deck's page, in `ui::selection::text`.
 
-use rappel_core::domain::{Tag, name_key};
+use rappel_core::domain::{Deck, Tag, name_key};
 use rappel_core::storage::{BrowseQuery, CardStatus, StateFilter};
 
 use crate::i18n::{fill, gettext, ngettext};
@@ -88,6 +88,8 @@ pub enum Empty {
     NoCards,
     /// A search or filter matches nothing.
     NoResults,
+    /// Every card is in an archived deck, and those are hidden (ADR 0068).
+    OnlyArchived,
 }
 
 /// The status page of an [`Empty`] state: icon, title and its one
@@ -105,7 +107,17 @@ pub fn empty_page(empty: Empty) -> Option<(&'static str, String, String)> {
             gettext("No Results Found"),
             gettext("Try a different search or other filters"),
         )),
+        Empty::OnlyArchived => Some((
+            "edit-find-symbolic",
+            gettext("Only Archived Cards"),
+            gettext("The cards of archived decks are hidden"),
+        )),
     }
+}
+
+/// The button of the "Only Archived Cards" state: shows them.
+pub fn show_archived_label() -> String {
+    gettext("_Show Archived Decks")
 }
 
 /// The button of the "No Cards Yet" state: back to the deck list, where
@@ -135,16 +147,21 @@ pub fn searched_and_filtered(query: &BrowseQuery) -> (bool, bool) {
 
 /// `shown` rows came back; `filtered` says whether a search text or a filter
 /// was set, `collection_empty` whether there is no live card at all
-/// (whatever the filters). An empty collection is "No Cards Yet" even with
-/// a filter set (opened from an empty deck), so the page does not say "No
-/// Results Found" first and then change its mind.
+/// (whatever the filters, archived decks included). An empty collection is
+/// "No Cards Yet" even with a filter set (opened from an empty deck), so
+/// the page does not say "No Results Found" first and then change its
+/// mind. No row without a search or filter while there are cards means
+/// they are all in archived decks, which are hidden (the archived filter is
+/// not a filter here: Escape and Clear Filters leave it, ADR 0068).
 pub fn empty_state(shown: usize, filtered: bool, collection_empty: bool) -> Empty {
     if shown > 0 {
         Empty::No
-    } else if collection_empty || !filtered {
+    } else if collection_empty {
         Empty::NoCards
-    } else {
+    } else if filtered {
         Empty::NoResults
+    } else {
+        Empty::OnlyArchived
     }
 }
 
@@ -152,6 +169,76 @@ pub fn empty_state(shown: usize, filtered: bool, collection_empty: bool) -> Empt
 /// there is nothing to narrow.
 pub fn filters_shown(empty: Empty) -> bool {
     empty != Empty::NoCards
+}
+
+/// The entries of the "Archived Decks" drop-down, in order: hidden (the
+/// default), then shown (ADR 0068).
+pub fn archived_entries() -> [String; 2] {
+    [
+        // Translators: All Cards' filter of archived decks: their cards
+        // are not listed. Short: it shares a phone's width with three
+        // other filters.
+        gettext("Archived Hidden"),
+        // Translators: All Cards' filter of archived decks: their cards
+        // are listed too.
+        gettext("Archived Shown"),
+    ]
+}
+
+/// Where the filter drop-downs go (ADR 0068).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FilterLayout {
+    /// The archived drop-down has a line of its own under the other
+    /// three, as wide as they are together; else it is fourth on their
+    /// line.
+    pub archived_below: bool,
+    /// The columns are as wide as each other. Four on one line are each as
+    /// wide as their text instead: four equal ones cut "Archived Hidden"
+    /// even at 1000 px.
+    pub homogeneous: bool,
+}
+
+/// The layout of the filters on a phone (`compact`, under 500 sp) or
+/// wider, with the archived drop-down `archived_visible` or not. Without
+/// it, the three filters are laid out as they always were (equal widths).
+pub fn filter_layout(compact: bool, archived_visible: bool) -> FilterLayout {
+    FilterLayout {
+        archived_below: compact,
+        homogeneous: compact || !archived_visible,
+    }
+}
+
+/// Whether the cards of archived decks are listed: the drop-down shows
+/// (some deck is archived) and says "Archived Shown" (entry 1).
+pub fn archived_shown(filter_visible: bool, selected: u32) -> bool {
+    filter_visible && selected == 1
+}
+
+/// The decks the deck filter lists: every live deck when archived decks
+/// are shown, else those that are not archived, in the order given.
+pub fn filter_decks(decks: &[Deck], show_archived: bool) -> Vec<Deck> {
+    decks
+        .iter()
+        .filter(|deck| show_archived || !deck.is_archived())
+        .cloned()
+        .collect()
+}
+
+/// A deck's entry in the deck filter, on one line: its name, marked when
+/// it is archived ("Spanish (archived)"; the name isolated, so a
+/// right-to-left name cannot reorder the mark).
+pub fn deck_filter_label(deck: &Deck) -> String {
+    let name = one_line(&deck.name);
+    if deck.is_archived() {
+        fill(
+            // Translators: an archived deck in All Cards' deck filter;
+            // {name} is the deck's name.
+            &gettext("{name} (archived)"),
+            &[("name", &isolate(&name))],
+        )
+    } else {
+        name
+    }
 }
 
 /// The key that moves from the search field to the list, whatever the
@@ -385,6 +472,10 @@ mod tests {
     fn the_empty_state_depends_on_the_collection_then_on_what_was_asked() {
         assert_eq!(empty_state(0, false, true), Empty::NoCards);
         assert_eq!(empty_state(0, true, false), Empty::NoResults);
+        // Cards, but none listed and nothing asked for: they are all in
+        // hidden archived decks.
+        assert_eq!(empty_state(0, false, false), Empty::OnlyArchived);
+        assert!(filters_shown(Empty::OnlyArchived));
         // Opened from an empty deck in an empty collection: the deck
         // filter is set, but there is nothing to find anywhere.
         assert_eq!(empty_state(0, true, true), Empty::NoCards);
@@ -459,6 +550,57 @@ mod tests {
         assert_eq!(state_filter(1), Some(StateFilter::New));
         assert_eq!(state_filter(4), Some(StateFilter::Suspended));
         assert_eq!(state_filter(u32::MAX), None);
+    }
+
+    fn deck(id: &str, name: &str, archived: bool) -> Deck {
+        Deck {
+            id: id.to_owned(),
+            name: name.to_owned(),
+            created_at: 0,
+            updated_at: 0,
+            archived_at: archived.then_some(5),
+        }
+    }
+
+    #[test]
+    fn archived_decks_are_listed_and_marked_only_when_shown() {
+        let decks = [
+            deck("1", "Maths", false),
+            deck("2", "Spanish", true),
+            deck("3", "Zoo", false),
+        ];
+        let ids = |decks: Vec<Deck>| decks.into_iter().map(|d| d.id).collect::<Vec<_>>();
+        assert_eq!(ids(filter_decks(&decks, false)), ["1", "3"]);
+        assert_eq!(ids(filter_decks(&decks, true)), ["1", "2", "3"]);
+        assert_eq!(deck_filter_label(&decks[0]), "Maths");
+        assert_eq!(
+            deck_filter_label(&decks[1]),
+            "\u{2068}Spanish\u{2069} (archived)"
+        );
+        // One line, and braces in a name stay as they are.
+        assert_eq!(
+            deck_filter_label(&deck("4", "a\n {name}", true)),
+            "\u{2068}a {name}\u{2069} (archived)"
+        );
+        assert_eq!(archived_entries(), ["Archived Hidden", "Archived Shown"]);
+        // Three equal filters as before, unless the fourth shows beside
+        // them; on a phone it goes under them.
+        let layout = |compact, visible| {
+            let l = filter_layout(compact, visible);
+            (l.archived_below, l.homogeneous)
+        };
+        assert_eq!(layout(false, false), (false, true));
+        assert_eq!(layout(false, true), (false, false));
+        assert_eq!(layout(true, false), (true, true));
+        assert_eq!(layout(true, true), (true, true));
+        assert!(archived_shown(true, 1));
+        assert!(!archived_shown(true, 0));
+        // Hidden while no deck is archived: nothing to show.
+        assert!(!archived_shown(false, 1));
+        let (_, title, body) = empty_page(Empty::OnlyArchived).unwrap();
+        assert_eq!(title, "Only Archived Cards");
+        assert_eq!(body, "The cards of archived decks are hidden");
+        assert_eq!(show_archived_label(), "_Show Archived Decks");
     }
 
     #[test]

@@ -24,7 +24,8 @@ use crate::dialogs::{
     browser_dialogs, card_editor, card_info, deck_name_dialog, merge_deck, preferences,
 };
 use crate::pages::{
-    BrowserPage, DeckPage, DecksPage, RecoveryPage, ReviewPage, SettingPage, StatsPage,
+    ArchivedPage, BrowserPage, DeckPage, DecksPage, RecoveryPage, ReviewPage, SettingPage,
+    StatsPage,
 };
 use crate::ui::dialog;
 use crate::widgets::{
@@ -35,6 +36,10 @@ use crate::window::RappelWindow;
 
 /// Each `data/*.blp` file with how this test loads it.
 const CHECKS: &[(&str, Load)] = &[
+    (
+        "archived_page.blp",
+        Load::Template(template::<ArchivedPage>),
+    ),
     ("backup_row.blp", Load::Template(template::<BackupRow>)),
     (
         "browser_dialogs.blp",

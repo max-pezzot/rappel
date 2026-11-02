@@ -203,6 +203,9 @@ pub struct BrowseQuery {
     pub tag_id: Option<String>,
     /// Only cards in this state.
     pub state: Option<StateFilter>,
+    /// Also the cards of archived decks (ADR 0068). Off by default: All
+    /// Cards hides them until asked.
+    pub include_archived: bool,
 }
 
 /// Where a card stands, for its row.
@@ -240,7 +243,8 @@ const ROW_SELECT: &str = "c.id, c.deck_id, c.front_md, c.back_md, c.created_at, 
      c.suspended, d.name, s.phase, s.due_at";
 
 impl Store {
-    /// The live cards in live decks that match `query`, newest first, with
+    /// The live cards in live decks (archived ones only with
+    /// [`BrowseQuery::include_archived`]) that match `query`, newest first, with
     /// their deck names, tags and status at `now` (UTC milliseconds), read
     /// in one transaction.
     ///
@@ -254,6 +258,9 @@ impl Store {
              LEFT JOIN card_schedule s ON s.card_id = c.id
              WHERE c.deleted_at IS NULL"
         );
+        if !query.include_archived {
+            sql.push_str(" AND d.archived_at IS NULL");
+        }
         let mut args: Vec<Value> = Vec::new();
         if !query.text.trim().is_empty() {
             let Some(m) = fts_query(&query.text) else {
@@ -313,7 +320,8 @@ impl Store {
     }
 
     /// The row of card `card_id` as [`Self::browse`] shows it, or `None` if
-    /// the card or its deck is deleted.
+    /// the card or its deck is deleted. A card of an archived deck has its
+    /// row, whatever the filter.
     ///
     /// # Errors
     /// SQLite errors.

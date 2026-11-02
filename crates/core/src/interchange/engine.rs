@@ -21,8 +21,8 @@ use super::media::MediaList;
 use super::notes::{Candidates, EventNote, Locate, Notes, UndoNote, name_digest, target_key};
 use super::stream::{Sink, Stopped, Table};
 use super::validate::{
-    Kind, card_fields, check_id, check_settings, check_top_level, deck_fields, event_fields,
-    invalid, reference, tag_fields,
+    Kind, archived_at, card_fields, check_id, check_settings, check_top_level, deck_fields,
+    event_fields, invalid, reference, tag_fields,
 };
 use super::{Conflict, FieldProblem, ImportProblem, ImportSummary, Limits, SettingsImport};
 use crate::domain::{deck_name_key, name_key};
@@ -179,7 +179,8 @@ impl<'c> Engine<'c> {
     ) -> crate::Result<Self> {
         let reads = Reads {
             deck: conn.prepare(
-                "SELECT id, name, created_at, updated_at, deleted_at FROM decks WHERE id = ?1",
+                "SELECT id, name, created_at, updated_at, archived_at, deleted_at
+                 FROM decks WHERE id = ?1",
             )?,
             deck_name: conn.prepare(
                 "SELECT id FROM decks WHERE name_key = ?1 AND deleted_at IS NULL AND id <> ?2",
@@ -206,8 +207,8 @@ impl<'c> Engine<'c> {
         let writes = if write {
             Some(Writes {
                 deck: conn.prepare(
-                    "INSERT INTO decks (id, name, name_key, created_at, updated_at, deleted_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    "INSERT INTO decks (id, name, name_key, created_at, updated_at, archived_at, deleted_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 )?,
                 // `updated_at` is not touched, as deleting did not touch it.
                 revive_deck: conn.prepare(
@@ -448,7 +449,8 @@ impl<'c> Engine<'c> {
                     name: r.get(1)?,
                     created_at: r.get(2)?,
                     updated_at: r.get(3)?,
-                    deleted_at: r.get(4)?,
+                    archived_at: r.get::<_, Option<i64>>(4)?.into(),
+                    deleted_at: r.get(5)?,
                 })
             })
             .optional()?;
@@ -456,20 +458,28 @@ impl<'c> Engine<'c> {
             self.summary.decks.new += 1;
             record(&mut self.digest, code::DECK, index, code::NEW, &[]);
             if let Some(w) = &mut self.writes {
+                // A new deck keeps the file's flag (ADR 0068), checked by
+                // `deck_fields` before.
+                let archived_at = archived_at(d.archived_at).ok().flatten();
                 w.deck.execute(params![
                     d.id,
                     d.name,
                     deck_name_key(&d.name),
                     d.created_at,
                     d.updated_at,
+                    archived_at,
                     d.deleted_at
                 ])?;
             }
             return Ok(());
         };
         let stored_deleted = s.deleted_at;
+        // The database keeps its own `archived_at`: an import never
+        // changes how a live deck is studied (ADR 0068), as for a card's
+        // `suspended` (ADR 0035).
         let rest_equal = DeckRecord {
             deleted_at: d.deleted_at,
+            archived_at: d.archived_at,
             ..s
         } == *d;
         match compare(rest_equal, stored_deleted, d.deleted_at) {

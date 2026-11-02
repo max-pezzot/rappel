@@ -1,5 +1,6 @@
 //! Full-window pages. Each is a `.rs` file with its layout in `data/*.blp`.
 
+mod archived_page;
 mod browser_page;
 mod deck_page;
 mod decks_page;
@@ -8,6 +9,8 @@ mod review_page;
 mod setting_page;
 mod stats_page;
 
+pub use archived_page::ArchivedPage;
+pub(crate) use archived_page::text as archived_text;
 pub use browser_page::BrowserPage;
 pub(crate) use browser_page::text as browser_text;
 pub use deck_page::DeckPage;

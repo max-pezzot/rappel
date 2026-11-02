@@ -798,7 +798,12 @@ fn move_targets(decks: Vec<Deck>, own_deck: Option<&str>) -> Vec<Deck> {
             .into_iter()
             .cloned()
             .collect(),
-        None => decks,
+        // Archived decks are not offered (ADR 0068); `decks` has none,
+        // but the rule is kept where the targets are chosen.
+        None => decks
+            .into_iter()
+            .filter(|deck| !deck.is_archived())
+            .collect(),
     }
 }
 
@@ -856,6 +861,7 @@ mod tests {
             name: id.to_owned(),
             created_at: 0,
             updated_at: 0,
+            archived_at: None,
         }
     }
 

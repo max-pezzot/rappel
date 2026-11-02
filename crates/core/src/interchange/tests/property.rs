@@ -27,6 +27,10 @@ pub(super) enum Op {
     MoveCards(usize, usize),
     /// Merge Into…: the first deck into the second.
     MergeDeck(usize, usize),
+    /// Archive (ADR 0068).
+    Archive(usize),
+    /// Unarchive.
+    Unarchive(usize),
 }
 
 /// Names that collide by key, so renames and creates sometimes fail.
@@ -56,6 +60,8 @@ pub(super) fn op() -> impl Strategy<Value = Op> {
         1 => (0u32..30).prop_map(Op::SetMaxNew),
         2 => (i(), i()).prop_map(|(c, d)| Op::MoveCards(c, d)),
         1 => (i(), i()).prop_map(|(a, b)| Op::MergeDeck(a, b)),
+        1 => i().prop_map(Op::Archive),
+        1 => i().prop_map(Op::Unarchive),
     ]
 }
 
@@ -165,17 +171,39 @@ pub(super) fn run(store: &mut Store, ops: &[Op]) {
                 }
             }
             Op::SetMaxNew(n) => store.set_max_new_per_day(n).unwrap(),
-            Op::MoveCards(c, d) => {
-                if let (Some(c), Some(d)) = (pick(&cards, c), pick(&decks, d)) {
-                    let _ = store.move_cards(&[c], &d);
-                }
-            }
-            Op::MergeDeck(a, b) => {
-                if let (Some(a), Some(b)) = (pick(&decks, a), pick(&decks, b)) {
-                    let _ = store.merge_deck(&a, &b);
-                }
+            Op::MoveCards(..) | Op::MergeDeck(..) | Op::Archive(_) | Op::Unarchive(_) => {
+                reorganise(store, &decks, &cards, op);
             }
         }
+    }
+}
+
+/// The ops of [`run`] that reorganise decks: Move to Deck…, Merge Into…,
+/// Archive and Unarchive, on the decks and cards picked from.
+fn reorganise(store: &mut Store, decks: &[String], cards: &[String], op: &Op) {
+    let pick = |v: &[String], i: usize| (!v.is_empty()).then(|| v[i % v.len()].clone());
+    match *op {
+        Op::MoveCards(c, d) => {
+            if let (Some(c), Some(d)) = (pick(cards, c), pick(decks, d)) {
+                let _ = store.move_cards(&[c], &d);
+            }
+        }
+        Op::MergeDeck(a, b) => {
+            if let (Some(a), Some(b)) = (pick(decks, a), pick(decks, b)) {
+                let _ = store.merge_deck(&a, &b);
+            }
+        }
+        Op::Archive(d) => {
+            if let Some(d) = pick(decks, d) {
+                let _ = store.archive_deck(&d);
+            }
+        }
+        Op::Unarchive(d) => {
+            if let Some(d) = pick(decks, d) {
+                let _ = store.unarchive_deck(&d);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -212,11 +240,13 @@ proptest! {
 }
 
 /// The writes that only reorganise: new decks, moves, merges, deck and
-/// card deletes and their undos. An export made before any of them
-/// conflicts only on a deck name taken since.
+/// card deletes and their undos, archiving and unarchiving. An export made
+/// before any of them conflicts only on a deck name taken since.
 fn reorganisation() -> impl Strategy<Value = Op> {
     let i = || 0usize..16;
     prop_oneof![
+        2 => i().prop_map(Op::Archive),
+        1 => i().prop_map(Op::Unarchive),
         2 => (0..NAMES.len()).prop_map(Op::CreateDeck),
         4 => (i(), i()).prop_map(|(c, d)| Op::MoveCards(c, d)),
         2 => (i(), i()).prop_map(|(a, b)| Op::MergeDeck(a, b)),
@@ -225,6 +255,18 @@ fn reorganisation() -> impl Strategy<Value = Op> {
         1 => i().prop_map(Op::DeleteCard),
         1 => i().prop_map(Op::UndeleteCard),
     ]
+}
+
+/// Each live deck's id and `archived_at`.
+fn archive_flags(store: &Store) -> Vec<(String, Option<i64>)> {
+    store
+        .conn
+        .prepare("SELECT id, archived_at FROM decks WHERE deleted_at IS NULL ORDER BY id")
+        .unwrap()
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap()
 }
 
 /// The ids of the live cards and the deck each is in.
@@ -243,8 +285,9 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(256))]
 
     /// An export made before cards were moved, decks merged, deleted or
-    /// brought back imports into that database without a conflict (ADR
-    /// 0067): every card live before stays in its deck, no live card is
+    /// brought back, archived or unarchived imports into that database
+    /// without a conflict (ADR 0067, 0068): every card live before stays in
+    /// its deck, every live deck keeps its `archived_at`, no live card is
     /// left in a deleted deck, the summary counts the cards that stay in
     /// another deck than the file's, and importing again changes nothing.
     #[test]
@@ -257,6 +300,7 @@ proptest! {
         let old = env.export();
         run(&mut env.store, &later);
         let live = live_cards(&env.store);
+        let flags = archive_flags(&env.store);
         let decks_of_file: std::collections::HashMap<String, String> = json_of(&old)["cards"]
             .as_array()
             .unwrap()
@@ -287,6 +331,12 @@ proptest! {
         // Every card live before is still live, in the same deck.
         for card in &live {
             prop_assert!(after.contains(card), "{:?}", card);
+        }
+        // Every deck live before keeps its own flag; a deck the import
+        // revives keeps the database's too.
+        let flags_after = archive_flags(&env.store);
+        for flag in &flags {
+            prop_assert!(flags_after.contains(flag), "{:?}", flag);
         }
         // The cards that stay live in another deck than the file's.
         let kept = after

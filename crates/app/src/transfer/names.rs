@@ -30,7 +30,8 @@ pub(super) struct Names {
 
 impl Names {
     pub(super) fn read(state: &AppState, conflicts: &[Conflict]) -> Self {
-        let decks = match state.decks() {
+        // Archived decks are live, and an import conflict may name one.
+        let decks = match state.decks_with_archived() {
             Ok(decks) => Some(decks.into_iter().map(|d| (d.id, d.name)).collect()),
             Err(err) => {
                 log_failure("reading deck names for import conflicts", &err.to_string());

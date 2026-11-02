@@ -150,14 +150,18 @@ fn copy_media(path: &Path, media: &MediaRef, out: &mut impl Write) -> Result<()>
 fn read_document(conn: &Connection, now: i64) -> Result<(Document, Vec<MediaRow>)> {
     let tx = conn.unchecked_transaction()?;
     let decks = tx
-        .prepare("SELECT id, name, created_at, updated_at, deleted_at FROM decks ORDER BY id")?
+        .prepare(
+            "SELECT id, name, created_at, updated_at, archived_at, deleted_at
+             FROM decks ORDER BY id",
+        )?
         .query_map([], |r| {
             Ok(DeckRecord {
                 id: r.get(0)?,
                 name: r.get(1)?,
                 created_at: r.get(2)?,
                 updated_at: r.get(3)?,
-                deleted_at: r.get(4)?,
+                archived_at: r.get::<_, Option<i64>>(4)?.into(),
+                deleted_at: r.get(5)?,
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;

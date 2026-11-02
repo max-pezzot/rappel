@@ -19,11 +19,14 @@ use crate::ui::{dialog, dropdown};
 
 const FILE: &str = "merge_deck_dialog.ui";
 
-/// The decks deck `source` can be merged into: every deck but itself, in
-/// the order given. The one place that decides it, so that phase 3a's
-/// archive slice leaves archived decks out here, for both menus.
+/// The decks deck `source` can be merged into: every deck but itself and
+/// the archived ones (core refuses those, ADR 0068), in the order given.
+/// The one place that decides it, for both menus.
 pub fn targets<'a>(decks: &'a [Deck], source: &str) -> Vec<&'a Deck> {
-    decks.iter().filter(|deck| deck.id != source).collect()
+    decks
+        .iter()
+        .filter(|deck| deck.id != source && !deck.is_archived())
+        .collect()
 }
 
 /// Whether Merge Into… is enabled for deck `source`: when there is a deck
@@ -257,6 +260,7 @@ mod tests {
             name: format!("Deck {id}"),
             created_at: 0,
             updated_at: 0,
+            archived_at: None,
         }
     }
 
@@ -278,6 +282,23 @@ mod tests {
         assert!(!offered(&[], "a"));
         assert!(!offered(&[deck("a")], "a"));
         assert!(offered(&[deck("a"), deck("b")], "a"));
+    }
+
+    /// Archived decks are never offered (ADR 0068): with only archived
+    /// others, the entry is disabled.
+    #[test]
+    fn archived_decks_are_not_targets() {
+        let archived = |id| Deck {
+            archived_at: Some(1),
+            ..deck(id)
+        };
+        let decks = [deck("a"), archived("b"), deck("c")];
+        let ids: Vec<&str> = targets(&decks, "a")
+            .into_iter()
+            .map(|d| d.id.as_str())
+            .collect();
+        assert_eq!(ids, ["c"]);
+        assert!(!offered(&[deck("a"), archived("b")], "a"));
     }
 
     #[test]

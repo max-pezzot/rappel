@@ -403,6 +403,11 @@ pub enum FieldProblem {
     /// A timestamp before 1970 or after the year 9999.
     #[error("timestamp out of range")]
     TimestampOutOfRange,
+    /// Not a timestamp at all: a string, a fraction, a boolean, an array
+    /// or an object where a whole number of milliseconds (or `null`)
+    /// belongs (`archived_at`, ADR 0068).
+    #[error("not a timestamp")]
+    NotATimestamp,
     /// Empty, or only whitespace.
     #[error("empty")]
     Empty,

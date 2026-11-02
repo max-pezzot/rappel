@@ -141,6 +141,9 @@ mod imp {
             klass.install_action("deck.merge", None, |page, _, _| {
                 page.merge();
             });
+            klass.install_action("deck.archive", None, |page, _, _| {
+                page.archive();
+            });
             // Activated by the card rows' menus with the card id.
             rows::install_id_action(klass, "deck.edit-card", super::DeckPage::edit);
             rows::install_id_action(klass, "deck.delete-card", super::DeckPage::delete);
@@ -547,6 +550,25 @@ impl DeckPage {
                 window.leave_merged_deck(&page, &state, done);
             }
         ));
+    }
+
+    /// Archive from the Deck Menu: archives this deck at once. It has no
+    /// page then, so the page goes back to the deck list, with the focus on
+    /// the row now at its place; the toast's Undo brings it back there
+    /// (ADR 0068).
+    fn archive(&self) {
+        let imp = self.imp();
+        let (Some(state), Some(deck)) = (imp.state.get(), imp.deck.get()) else {
+            return;
+        };
+        if let Err(err) = state.archive_deck(&deck.id) {
+            self.error_toast(&crate::pages::archived_text::not_archived(&err));
+            return;
+        }
+        let Some(window) = self.root().and_downcast::<RappelWindow>() else {
+            return;
+        };
+        window.leave_archived_deck(self, state, &deck.id);
     }
 
     /// Shows the information of card `id`.

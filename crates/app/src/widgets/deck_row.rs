@@ -1,10 +1,11 @@
 //! One deck in the deck list: name, what it has to study (or when it next
-//! will, `text`) and a menu with Rename, Merge Into… and Delete. Layout in
-//! `data/deck_row.blp` (ADR 0041, 0066).
+//! will, `text`) and a menu with Rename, Merge Into…, Archive and Delete.
+//! Layout in `data/deck_row.blp` (ADR 0041, 0066, 0068).
 //!
 //! The menu items activate the row's own `row.rename` / `row.merge` /
-//! `row.delete` actions, which forward to the page's `decks.rename` /
-//! `decks.merge` / `decks.delete` with this row's deck id (see `ui::rows`).
+//! `row.archive` / `row.delete` actions, which forward to the page's
+//! `decks.rename` / `decks.merge` / `decks.archive` / `decks.delete` with
+//! this row's deck id (see `ui::rows`).
 
 use adw::prelude::*;
 use adw::subclass::prelude::*;
@@ -54,6 +55,9 @@ mod imp {
             });
             klass.install_action("row.merge", None, |row, _, _| {
                 row.forward("decks.merge");
+            });
+            klass.install_action("row.archive", None, |row, _, _| {
+                row.forward("decks.archive");
             });
             klass.install_action("row.delete", None, |row, _, _| {
                 row.forward("decks.delete");

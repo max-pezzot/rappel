@@ -5,7 +5,7 @@ use std::time::Duration;
 use rusqlite::{Connection, TransactionBehavior, params};
 
 use super::cards::live_card;
-use super::decks::ensure_live_deck;
+use super::decks::{ensure_active_deck, ensure_live_deck};
 use super::schedule::{insert_event, read_card_state, read_log, rebuild_cards, write_card_state};
 use super::settings::{scheduler_in, settings_in};
 use super::{Store, observe_max_id};
@@ -124,7 +124,9 @@ impl Store {
     /// transaction (ADR 0027).
     ///
     /// # Errors
-    /// [`Error::DeckNotFound`](crate::Error::DeckNotFound), SQLite errors.
+    /// [`Error::DeckNotFound`](crate::Error::DeckNotFound),
+    /// [`Error::DeckArchived`](crate::Error::DeckArchived) (an archived
+    /// deck is not studied, ADR 0068), SQLite errors.
     pub fn study_input(&self, deck_id: &str, now: i64, day_start: i64) -> Result<StudyInput> {
         let tx = self.conn.unchecked_transaction()?;
         let input = study_input_in(&tx, deck_id, now, day_start)?;
@@ -285,7 +287,7 @@ pub(super) fn study_input_in(
     now: i64,
     day_start: i64,
 ) -> Result<StudyInput> {
-    ensure_live_deck(conn, deck_id)?;
+    ensure_active_deck(conn, deck_id)?;
     let limits = settings_in(conn)?;
     // `limit` -1 is no limit in SQLite.
     let due = |phases: &str, until: i64, limit: i64| -> Result<Vec<Due>> {

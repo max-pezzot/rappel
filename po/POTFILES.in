@@ -1,4 +1,5 @@
 # Files with messages for translators. Made by the tests (README.md).
+crates/app/data/archived_page.blp
 crates/app/data/backup_row.blp
 crates/app/data/browser_dialogs.blp
 crates/app/data/browser_page.blp
@@ -39,6 +40,8 @@ crates/app/src/dialogs/deck_name_dialog.rs
 crates/app/src/dialogs/merge_deck.rs
 crates/app/src/dialogs/move_card.rs
 crates/app/src/dialogs/preferences.rs
+crates/app/src/pages/archived_page.rs
+crates/app/src/pages/archived_page/text.rs
 crates/app/src/pages/browser_page.rs
 crates/app/src/pages/browser_page/text.rs
 crates/app/src/pages/deck_page.rs
