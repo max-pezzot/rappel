@@ -185,6 +185,11 @@ pub struct ImportSummary {
     pub review_events: TableCounts,
     /// Media files.
     pub media: TableCounts,
+    /// Cards the file has in another deck that stay, live, in the deck
+    /// the database has them in (ADR 0067): already present or revived,
+    /// and counted there too. Told to the user, so a reorganisation on
+    /// another machine is not dropped silently.
+    pub cards_kept_in_their_deck: usize,
     /// What happens to the file's settings.
     pub settings: SettingsImport,
     /// Every conflict, in file order (decks, cards, tags, events, media,

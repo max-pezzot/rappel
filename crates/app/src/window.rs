@@ -480,6 +480,37 @@ impl RappelWindow {
         }
     }
 
+    /// After a merge's Undo brought deck `source` back: every open deck
+    /// page and All Cards read their cards again (the target lost the
+    /// cards), and the deck list shows the deck again, focused if the list
+    /// is showing (ADR 0066).
+    pub fn deck_unmerged(&self, source: &str) {
+        for page in self.pages() {
+            if let Some(deck) = page.downcast_ref::<DeckPage>() {
+                deck.reload();
+            } else if let Some(browser) = page.downcast_ref::<BrowserPage>() {
+                browser.reload_all();
+            }
+        }
+        self.imp().decks_page.deck_restored(source);
+    }
+
+    /// After deck page `page`'s deck was merged (`done`):
+    /// shows the deck list's "Decks merged" toast and goes back to the
+    /// list, which focuses the row of the deck it went into once shown
+    /// (ADR 0066: the merged deck has no page any more).
+    pub fn leave_merged_deck(
+        &self,
+        page: &DeckPage,
+        state: &AppState,
+        done: crate::dialogs::merge_deck::Done,
+    ) {
+        let decks = &self.imp().decks_page;
+        decks.focus_on_return(&done.target.id);
+        decks.show_merged_toast(state, done);
+        nav::pop(page);
+    }
+
     /// Shows the error page for decks that could not be read in `data_dir`.
     fn decks_unreadable(&self, err: &rappel_core::Error, data_dir: &Path) {
         tracing::error!("cannot list decks: {err}");
@@ -678,6 +709,8 @@ fn monitor_sizes(widget: &impl IsA<gtk::Widget>) -> Vec<(i32, i32)> {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
 
     /// A window opened as at startup on a data directory whose saved state
@@ -750,6 +783,106 @@ mod tests {
                     .is_some_and(|p| p.is::<BrowserPage>())
             );
             window.destroy();
+        });
+    }
+
+    /// The id of the deck row that has the focus, if one has.
+    fn focused_deck(window: &RappelWindow) -> Option<String> {
+        let focus = gtk::prelude::RootExt::focus(window)?;
+        let row = if let Some(row) = focus.downcast_ref::<crate::widgets::DeckRow>() {
+            row.clone()
+        } else {
+            focus
+                .ancestor(crate::widgets::DeckRow::static_type())
+                .and_downcast::<crate::widgets::DeckRow>()?
+        };
+        Some(row.deck_id())
+    }
+
+    /// Merge Into… from a deck page (ADR 0066): the page goes back to the
+    /// deck list, focused on the deck it went into; the Undo brings the
+    /// deck back, focused, with its cards.
+    #[test]
+    fn a_deck_merged_from_its_page_goes_back_to_the_list_and_its_undo_brings_it_back() {
+        crate::testing::with_widgets(|| {
+            let (window, page, _tmp) = reopened_with(2);
+            let imp = window.imp();
+            imp.navigation_view.set_animate_transitions(false);
+            let state = imp.state.get().unwrap().clone();
+            let source = page.deck_id().unwrap();
+            let target = state.create_deck("Languages").unwrap();
+            let source_deck = state.deck(&source).unwrap();
+            let merged = state.merge_deck(&source, &target.id).unwrap();
+            let done = crate::dialogs::merge_deck::Done {
+                source: source_deck,
+                target: target.clone(),
+                merged: merged.clone(),
+            };
+
+            window.leave_merged_deck(&page, &state, done);
+
+            let on_list = || {
+                imp.navigation_view
+                    .visible_page()
+                    .is_some_and(|p| p.is::<DecksPage>())
+            };
+            assert!(crate::testing::settle_until(
+                on_list,
+                Duration::from_secs(5)
+            ));
+            let ids = || -> Vec<String> {
+                imp.decks_page
+                    .deck_rows()
+                    .iter()
+                    .map(crate::widgets::DeckRow::deck_id)
+                    .collect()
+            };
+            assert_eq!(ids(), vec![target.id.clone()]);
+            assert!(crate::testing::settle_until(
+                || focused_deck(&window).as_deref() == Some(target.id.as_str()),
+                Duration::from_secs(5)
+            ));
+            // The one deck left has nothing to merge into.
+            assert!(!imp.decks_page.deck_rows()[0].can_merge());
+
+            state.unmerge_deck(&merged).unwrap();
+            window.deck_unmerged(&source);
+            assert_eq!(ids(), [source.clone(), target.id.clone()]);
+            assert_eq!(focused_deck(&window).as_deref(), Some(source.as_str()));
+            assert!(
+                imp.decks_page
+                    .deck_rows()
+                    .iter()
+                    .all(crate::widgets::DeckRow::can_merge)
+            );
+            assert_eq!(state.card_count(&source).unwrap(), 2);
+            window.destroy();
+        });
+    }
+
+    /// A window closed on a deck that was then merged starts on the deck
+    /// list: the merged deck is deleted, and reopening it does nothing.
+    #[test]
+    fn a_merged_last_deck_is_not_reopened() {
+        crate::testing::with_widgets(|| {
+            let (tmp, state) = crate::testing::temporary_state();
+            let data_dir = state.data_dir().to_path_buf();
+            let source = state.create_deck("Spanish").unwrap();
+            let target = state.create_deck("Languages").unwrap();
+            state.merge_deck(&source.id, &target.id).unwrap();
+            window_state::save(
+                &data_dir,
+                &window_state::WindowState {
+                    deck_id: Some(source.id),
+                    ..window_state::WindowState::default()
+                },
+            );
+            let window: RappelWindow = glib::Object::new();
+            window.show_main(state);
+            let visible = window.imp().navigation_view.visible_page();
+            assert!(visible.is_some_and(|p| p.is::<DecksPage>()));
+            window.destroy();
+            drop(tmp);
         });
     }
 

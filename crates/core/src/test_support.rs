@@ -55,6 +55,74 @@ pub(crate) fn schedule_table(store: &Store) -> Vec<ScheduleRow> {
     .unwrap()
 }
 
+/// Every row of every table of `store` (`sqlite_master`'s tables, so the
+/// search index's own tables and `card_schedule` too, and any table a
+/// later migration adds), with the `rowid` of each row of a rowid table,
+/// each row as the debug form of its values (a float's shortest form that
+/// reads back exactly), sorted; then the schema itself (`sqlite_master`'s
+/// type, name and SQL) and its version. Two dumps are equal exactly when
+/// the databases hold the same content, down to their rowids.
+pub(crate) fn dump(store: &Store) -> Vec<(String, Vec<String>)> {
+    let conn = &store.conn;
+    let version: i64 = conn
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap();
+    // Every table of the main schema, the search index's shadow tables
+    // included, and whether it was made WITHOUT ROWID (`wr`), as SQLite
+    // itself says (`PRAGMA table_list`, SQLite 3.37), not read from its SQL.
+    let tables: Vec<(String, bool)> = conn
+        .prepare(
+            "SELECT name, wr FROM pragma_table_list
+             WHERE schema = 'main' AND type IN ('table', 'shadow', 'virtual')
+               AND name <> 'sqlite_schema'
+             ORDER BY name",
+        )
+        .unwrap()
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    assert!(
+        tables
+            .iter()
+            .any(|(name, wr)| name == "cards_fts_idx" && *wr),
+        "the search index has a WITHOUT ROWID table: the list must say so"
+    );
+    let rows_of = |sql: &str| -> Vec<String> {
+        let mut stmt = conn.prepare(sql).unwrap();
+        let columns = stmt.column_count();
+        let mut rows: Vec<String> = stmt
+            .query_map([], |r| {
+                (0..columns)
+                    .map(|i| r.get::<_, rusqlite::types::Value>(i))
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .map(|values| format!("{values:?}"))
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        rows.sort();
+        rows
+    };
+    let mut out = vec![("user_version".to_owned(), vec![version.to_string()])];
+    for (name, without_rowid) in tables {
+        // A virtual table's rowid is read like any other; a table made
+        // WITHOUT ROWID has none.
+        let select = if without_rowid {
+            format!("SELECT * FROM \"{name}\"")
+        } else {
+            format!("SELECT rowid, * FROM \"{name}\"")
+        };
+        let rows = rows_of(&select);
+        out.push((name, rows));
+    }
+    out.push((
+        "sqlite_master".to_owned(),
+        rows_of("SELECT type, name, sql FROM sqlite_master"),
+    ));
+    out
+}
+
 /// `path` with `suffix` appended to its file name, e.g. the `-wal` file of
 /// a database.
 pub(crate) fn with_suffix(path: &Path, suffix: &str) -> PathBuf {

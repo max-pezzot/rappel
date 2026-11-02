@@ -371,6 +371,10 @@ pub enum Error {
     #[error("deck {0} does not exist")]
     DeckNotFound(String),
 
+    /// A deck cannot be merged into itself (ADR 0066). Nothing was written.
+    #[error("deck {0} cannot be merged into itself")]
+    MergeIntoItself(String),
+
     /// No card with this id, or it was deleted.
     #[error("card {0} does not exist")]
     CardNotFound(String),

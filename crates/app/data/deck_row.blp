@@ -106,6 +106,8 @@ template $RappelDeckRow: Gtk.ListBoxRow {
 menu deck_menu {
   section {
     item (_("_Rename…"), "row.rename")
+    // Disabled while there is no other deck (dialogs/merge_deck.rs).
+    item (_("_Merge Into…"), "row.merge")
     item (_("_Delete"), "row.delete")
   }
 }

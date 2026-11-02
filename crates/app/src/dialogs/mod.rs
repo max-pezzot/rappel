@@ -6,6 +6,7 @@ pub mod card_editor;
 pub mod card_info;
 pub mod clean_up;
 pub mod deck_name_dialog;
+pub mod merge_deck;
 pub mod move_card;
 pub mod preferences;
 #[cfg(test)]

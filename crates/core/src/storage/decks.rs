@@ -140,6 +140,25 @@ impl Store {
             .ok_or_else(|| Error::DeckNotFound(id.to_owned()))
     }
 
+    /// How many live cards deck `id` has, suspended ones included: what
+    /// Merge Into… says it moves (ADR 0066). One count on the deck's index.
+    ///
+    /// # Errors
+    /// [`Error::DeckNotFound`] if there is no such deck or it was deleted,
+    /// SQLite errors.
+    pub fn card_count(&self, id: &str) -> Result<usize> {
+        let tx = self.conn.unchecked_transaction()?;
+        ensure_live_deck(&tx, id)?;
+        let count: i64 = tx.query_row(
+            "SELECT count(*) FROM cards WHERE deck_id = ?1 AND deleted_at IS NULL",
+            [id],
+            |r| r.get(0),
+        )?;
+        // Read only: ending it commits nothing.
+        tx.finish()?;
+        Ok(usize::try_from(count).unwrap_or(0))
+    }
+
     /// Soft-deletes deck `id` and its live cards. They all get the same
     /// `deleted_at` stamp, greater than that of any card of the deck
     /// deleted earlier, so a later undo can restore exactly this batch.
@@ -157,12 +176,7 @@ impl Store {
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         ensure_live_deck(&tx, id)?;
-        let earlier: Option<i64> = tx.query_row(
-            "SELECT max(deleted_at) FROM cards WHERE deck_id = ?1",
-            [id],
-            |r| r.get(0),
-        )?;
-        let stamp = earlier.map_or(now, |e| now.max(e.saturating_add(1)));
+        let stamp = deletion_stamp(&tx, id, now)?;
         tx.execute(
             "UPDATE decks SET deleted_at = ?2 WHERE id = ?1",
             params![id, stamp],
@@ -232,7 +246,7 @@ fn live_decks(conn: &Connection) -> Result<Vec<Deck>> {
     Ok(decks)
 }
 
-fn deck_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Deck> {
+pub(super) fn deck_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Deck> {
     Ok(Deck {
         id: r.get(0)?,
         name: r.get(1)?,
@@ -260,7 +274,7 @@ fn deck_name(name: &str) -> Result<&str> {
 /// Maps the live-name unique index's error to [`Error::DuplicateDeckName`].
 /// `decks.id` is the only other unique key, and a new id is always above
 /// the largest stored one, so a unique violation here is the name.
-fn duplicate_name(err: rusqlite::Error, name: &str) -> Error {
+pub(super) fn duplicate_name(err: rusqlite::Error, name: &str) -> Error {
     if let rusqlite::Error::SqliteFailure(e, _) = &err
         && e.code == ErrorCode::ConstraintViolation
         && e.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE
@@ -268,6 +282,20 @@ fn duplicate_name(err: rusqlite::Error, name: &str) -> Error {
         return Error::DuplicateDeckName(name.to_owned());
     }
     err.into()
+}
+
+/// The `deleted_at` stamp for deleting deck `id` at `now`: `now`, or one
+/// past the latest stamp of a card of the deck deleted earlier if that is
+/// later (a clock that went backwards, or the same millisecond), so an
+/// undo never takes such a card for one of the deck's batch (ADR 0012).
+/// Shared by [`Store::delete_deck`] and [`Store::merge_deck`] (ADR 0066).
+pub(super) fn deletion_stamp(conn: &Connection, id: &str, now: i64) -> Result<i64> {
+    let earlier: Option<i64> = conn.query_row(
+        "SELECT max(deleted_at) FROM cards WHERE deck_id = ?1",
+        [id],
+        |r| r.get(0),
+    )?;
+    Ok(earlier.map_or(now, |e| now.max(e.saturating_add(1))))
 }
 
 /// Fails with [`Error::DeckNotFound`] unless deck `id` exists and is live.

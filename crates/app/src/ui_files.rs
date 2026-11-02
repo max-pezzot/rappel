@@ -20,7 +20,9 @@ use std::path::Path;
 use adw::prelude::*;
 use gtk::{gio, glib};
 
-use crate::dialogs::{browser_dialogs, card_editor, card_info, deck_name_dialog, preferences};
+use crate::dialogs::{
+    browser_dialogs, card_editor, card_info, deck_name_dialog, merge_deck, preferences,
+};
 use crate::pages::{
     BrowserPage, DeckPage, DecksPage, RecoveryPage, ReviewPage, SettingPage, StatsPage,
 };
@@ -92,6 +94,12 @@ const CHECKS: &[(&str, Load)] = &[
         "import_dialog.blp",
         Load::Plain(|| {
             loads("import_dialog", crate::transfer::confirm_layout().err());
+        }),
+    ),
+    (
+        "merge_deck_dialog.blp",
+        Load::Plain(|| {
+            loads("merge_deck_dialog", merge_deck::layout().err());
         }),
     ),
     (

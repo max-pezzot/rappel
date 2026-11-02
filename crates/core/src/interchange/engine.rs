@@ -77,6 +77,7 @@ struct Reads<'c> {
     deck_name: Statement<'c>,
     card: Statement<'c>,
     batch: Statement<'c>,
+    deck_live: Statement<'c>,
     tag: Statement<'c>,
     tag_by_key: Statement<'c>,
     card_tag: Statement<'c>,
@@ -190,6 +191,7 @@ impl<'c> Engine<'c> {
             batch: conn.prepare(
                 "SELECT id FROM cards WHERE deck_id = ?1 AND deleted_at = ?2 ORDER BY id",
             )?,
+            deck_live: conn.prepare("SELECT 1 FROM decks WHERE id = ?1 AND deleted_at IS NULL")?,
             tag: conn.prepare("SELECT name FROM tags WHERE id = ?1")?,
             tag_by_key: conn.prepare("SELECT id FROM tags WHERE name_key = ?1")?,
             card_tag: conn
@@ -554,14 +556,34 @@ impl<'c> Engine<'c> {
             return Ok(());
         };
         let stored_deleted = s.deleted_at;
+        let stored_deck = s.deck_id.clone();
+        let moved = stored_deck != c.deck_id;
         // The database keeps its own `suspended`: an import never changes
-        // how a live card is studied (ADR 0035).
+        // how a live card is studied (ADR 0035). It keeps its own deck too:
+        // an import never reorganises cards, so a file from before a Move to
+        // Deck or a merge is already present (ADR 0067).
         let rest_equal = CardRecord {
             deleted_at: c.deleted_at,
             suspended: c.suspended,
+            deck_id: c.deck_id.clone(),
             ..s
         } == *c;
-        match compare(rest_equal, stored_deleted, c.deleted_at) {
+        let mut outcome = compare(rest_equal, stored_deleted, c.deleted_at);
+        if moved && matches!(outcome, Outcome::Revive(_)) && !self.live_after(&stored_deck)? {
+            // Revived, it would be a live card in a deleted deck: its deck
+            // in the database was deleted, and this import does not bring
+            // that deck back. It stays deleted, as the database has it.
+            outcome = Outcome::Present;
+        }
+        let live_after = match outcome {
+            Outcome::Revive(_) => true,
+            Outcome::Present => stored_deleted.is_none(),
+            Outcome::Conflict => false,
+        };
+        if moved && live_after {
+            self.summary.cards_kept_in_their_deck += 1;
+        }
+        match outcome {
             Outcome::Present => {
                 self.summary.cards.present += 1;
                 record(&mut self.digest, code::CARD, index, code::PRESENT, &[]);
@@ -580,6 +602,13 @@ impl<'c> Engine<'c> {
             }
         }
         Ok(())
+    }
+
+    /// Whether deck `id` of the database is live once this import is
+    /// written: live now, or revived by it (the decks are read before the
+    /// cards, so `batches` is complete by then).
+    fn live_after(&mut self, id: &str) -> Result<bool, Stop> {
+        Ok(self.reads.deck_live.exists([id])? || self.batches.iter().any(|(d, _)| d == id))
     }
 
     /// The cards deleted with each revived deck (same deck, same stamp, as

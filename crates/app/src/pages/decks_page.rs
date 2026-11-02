@@ -1,6 +1,6 @@
 //! The root page: the list of decks, or an empty state, with create,
-//! rename and delete (undone from a toast). Activating a deck opens its
-//! page. Layout in `data/decks_page.blp`.
+//! rename, merge and delete (the last two undone from a toast). Activating
+//! a deck opens its page. Layout in `data/decks_page.blp`.
 //!
 //! Each row says what its deck has to study, or when it next will
 //! ("Next review in 3 h", `widgets::deck_row::text`). Those texts age, so
@@ -10,7 +10,7 @@
 //! timer at the next change, at most a minute, ten minutes or an hour
 //! away (`refresh_delay_ms`, ADR 0041).
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
@@ -20,7 +20,8 @@ use gtk::glib;
 use rappel_core::domain::Deck;
 
 use crate::dialogs::deck_name_dialog::{self, Purpose};
-use crate::i18n::{fill, gettext};
+use crate::dialogs::merge_deck;
+use crate::i18n::gettext;
 use crate::pages::{DeckPage, StatsPage};
 use crate::state::AppState;
 use crate::ui::focus::index_after_removal;
@@ -29,6 +30,7 @@ use crate::ui::text::with_error;
 use crate::ui::toast::{show_error, show_toast_from, undo_toast};
 use crate::widgets::DeckRow;
 use crate::widgets::deck_row::text::refresh_delay_ms;
+use crate::window::RappelWindow;
 
 /// The empty state's icon, as in its layout, given back after a short
 /// window took it off (`ui::breakpoint::compact_status_page`).
@@ -87,6 +89,7 @@ mod imp {
             rows::install_id_action(klass, "decks.rename", |page, id| {
                 page.rename(id.to_owned());
             });
+            rows::install_id_action(klass, "decks.merge", super::DecksPage::merge);
             rows::install_id_action(klass, "decks.delete", super::DecksPage::delete);
             klass.install_action("decks.statistics", None, |page, _, _| {
                 page.show_statistics();
@@ -379,19 +382,115 @@ impl DecksPage {
         show_toast_from(self, toast);
     }
 
+    /// Merge Into…: asks for the deck to merge `id` into, merges at once,
+    /// and the row leaves the list (the focus on the row now at its place,
+    /// `index_after_removal`); the toast's Undo brings the deck back (#103,
+    /// ADR 0066).
+    fn merge(&self, id: &str) {
+        let Some(state) = self.imp().state().cloned() else {
+            return;
+        };
+        let id = id.to_owned();
+        glib::spawn_future_local(glib::clone!(
+            #[weak(rename_to = page)]
+            self,
+            async move {
+                let Some(index) = page.rows().iter().position(|row| row.deck_id() == id) else {
+                    return;
+                };
+                // The dialog gives the focus back to the widget that had it
+                // (the row's menu button, gone with the rebuilt list) when
+                // it closes, after the answer: the focus is set again then.
+                let merged_at: Rc<Cell<Option<usize>>> = Rc::default();
+                let closed = glib::clone!(
+                    #[weak]
+                    page,
+                    #[strong]
+                    merged_at,
+                    move || {
+                        if let Some(index) = merged_at.take() {
+                            page.focus_index(index);
+                        }
+                    }
+                );
+                let Some(done) = merge_deck::run(&page, &state, &id, closed).await else {
+                    return;
+                };
+                page.reload_or_toast(Focus::Index(index));
+                merged_at.set(Some(index));
+                page.show_merged_toast(&state, done);
+            }
+        ));
+    }
+
+    /// Shows "Decks merged" with Undo, which restores the merged deck and
+    /// reads every list again
+    /// (`RappelWindow::deck_unmerged`), from whichever page is showing
+    /// then. This page is the window's root and lives as long as it, so a
+    /// failed Undo is told from here.
+    pub fn show_merged_toast(&self, state: &AppState, done: merge_deck::Done) {
+        let window = self
+            .root()
+            .and_downcast::<RappelWindow>()
+            .map(|w| w.downgrade());
+        let page = self.downgrade();
+        let toast = merge_deck::merged_toast(state, done, move |result, done| match result {
+            Ok(deck) => {
+                if let Some(window) = window.as_ref().and_then(glib::WeakRef::upgrade) {
+                    window.deck_unmerged(&deck.id);
+                }
+            }
+            Err(err) => {
+                if let Some(page) = page.upgrade() {
+                    page.error_toast(&merge_deck::not_restored_text(
+                        &done.source,
+                        &done.target,
+                        &err,
+                    ));
+                }
+            }
+        });
+        show_toast_from(self, toast);
+    }
+
+    /// Lists the decks again after a merge was undone, with the focus on
+    /// the deck `id` brought back when this page shows; under another page
+    /// only the list is read again (`shown` keeps the focus as it was).
+    pub fn deck_restored(&self, id: &str) {
+        if self.is_on_top() {
+            self.reload_or_toast(Focus::Deck(id));
+        } else {
+            self.refresh();
+        }
+    }
+
+    /// Makes deck `id`'s row take the focus the next time this page shows,
+    /// e.g. the deck a deck page was merged into, going back from it.
+    pub fn focus_on_return(&self, id: &str) {
+        self.imp().opened.replace(Some(id.to_owned()));
+    }
+
+    /// Focuses the row now at `index` after a row there left the list, else
+    /// the last one, else the empty state's button.
+    fn focus_index(&self, index: usize) {
+        let rows = self.rows();
+        match index_after_removal(index, rows.len()) {
+            Some(i) => {
+                rows[i].grab_focus();
+            }
+            None => {
+                self.imp().empty_new_button.grab_focus();
+            }
+        }
+    }
+
     fn undelete(&self, id: &str, name: &str) {
         let Some(state) = self.imp().state() else {
             return;
         };
         match state.undelete_deck(id) {
             Ok(_) => self.reload_or_toast(Focus::Deck(id)),
-            Err(err) => self.error_toast(&fill(
-                // Translators: a toast: what is before ":" is its title, the
-                // rest is behind Details. {name} is a deck's name, {error}
-                // why, in English.
-                &gettext("“{name}” could not be restored: {error}"),
-                &[("name", name), ("error", &err.to_string())],
-            )),
+            Err(err) => self.error_toast(&crate::ui::text::not_restored(name, &err)),
         }
     }
 
@@ -443,9 +542,11 @@ impl DecksPage {
                 .iter()
                 .zip(&decks)
                 .all(|(row, summary)| row.deck_id() == summary.deck.id);
+        let plain: Vec<Deck> = decks.iter().map(|summary| summary.deck.clone()).collect();
         if matches!(focus, Focus::Keep) && same_decks {
             for (row, summary) in rows.iter().zip(&decks) {
                 row.update(summary, now, next_day);
+                row.set_can_merge(merge_deck::offered(&plain, &summary.deck.id));
             }
             imp.content_stack
                 .set_visible_child_name(if decks.is_empty() { "empty" } else { "list" });
@@ -466,6 +567,7 @@ impl DecksPage {
         let mut focus_row: Option<DeckRow> = None;
         for (i, summary) in decks.iter().enumerate() {
             let row = DeckRow::new(summary, now, next_day);
+            row.set_can_merge(merge_deck::offered(&plain, &summary.deck.id));
             let wanted = match focus {
                 Focus::Keep => false,
                 Focus::Deck(id) => summary.deck.id == id,
@@ -488,6 +590,12 @@ impl DecksPage {
             }
         }
         Ok(())
+    }
+
+    /// The rows of the list, in order, for tests.
+    #[cfg(test)]
+    pub(crate) fn deck_rows(&self) -> Vec<DeckRow> {
+        self.rows()
     }
 
     /// The rows of the list, in order.

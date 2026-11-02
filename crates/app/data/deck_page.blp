@@ -208,4 +208,13 @@ menu deck_menu {
       action: "deck.statistics";
     }
   }
+
+  // Changes to the deck itself, apart from what it shows. Disabled while
+  // there is no other deck (dialogs/merge_deck.rs).
+  section {
+    item {
+      label: _("_Merge Into…");
+      action: "deck.merge";
+    }
+  }
 }
