@@ -32,6 +32,13 @@
 The gate needs a display: some tests start GTK (`crates/app/src/testing.rs`). In a desktop session it uses that; without one, run `xvfb-run -a scripts/check.sh`. CI runs it under Xvfb (ADR 0024).
 A slice is not done until `scripts/check.sh` passes. It also runs as the git pre-commit hook and in CI (`.github/workflows/ci.yml`, required check `check`).
 
+## CI budget
+Spend CI time only where it checks something.
+- Run `scripts/check.sh` locally and the reviewer agent **before** opening a PR, so a PR normally needs one CI run. Fix all review findings, then push once, not commit by commit.
+- Docs-only PRs (`docs/`, `.claude/`, top-level Markdown except `CHANGELOG.md`) skip the gate in CI (ADR 0003, amendment). Keep code and docs of one slice in the same PR; do not split docs out to save a run, nor add docs to a code PR after CI has passed.
+- Do not push to a PR while its CI is running unless the push fixes something; a new push cancels and restarts the run. Never re-run a job without a reason (a failure that died before any test ran, or one shown not to be the PR's).
+- Wait for CI by watching (`gh pr checks --watch`), not by pushing or re-running.
+
 ## Workflow for each slice
 1. Short plan: files to create or change, migrations, new dependencies. Wait for approval in plan mode.
 2. Once approved, create the slice branch from an up-to-date `main` (see Git workflow).
