@@ -5,20 +5,22 @@
 //! Delete. The deck
 //! page and All Cards use the same row, so both lists look and cost the
 //! same; on All Cards ([`CardRow::for_browser`]) a third line says the deck
-//! and the status, and a check button shows while cards are being chosen.
+//! and the status. On both, a check button shows while cards are being
+//! chosen (`ui::selection`, ADR 0065), and a long press on a touch screen
+//! starts choosing with the row's card.
 //! Layout in `data/card_row.blp`; what a screen reader says in `text.rs`
 //! (and `pages::browser_text` for All Cards).
 //!
-//! Rows are recycled by the `GtkListView`: [`CardRow::bind`] and
+//! Rows are recycled by the `GtkListView`: [`CardRow::bind_card`] and
 //! [`CardRow::bind_browse`] point a row at another card, reusing its pill
 //! labels. The `compact` property (bound to the page's, a narrow window)
-//! shows fewer pills; `selecting` (All Cards) shows the check button
-//! instead of the menu. As in `DeckRow`, the menu items activate the row's
+//! shows fewer pills; `selecting` shows the check button instead of the
+//! menu. As in `DeckRow`, the menu items activate the row's
 //! own `row.edit` / `row.info` / `row.suspend` / `row.unsuspend` /
 //! `row.reset` / `row.move` / `row.delete` actions, which forward to the
 //! page's `edit-card` / `card-info` / `suspend-card` / `unsuspend-card` /
 //! `reset-card` / `move-card` / `delete-card` actions (in the `deck.` or `browser.`
-//! group) with the bound card's id.
+//! group) with the bound card's id, and a long press to `select-card`.
 
 use adw::prelude::*;
 use adw::subclass::prelude::*;
@@ -28,6 +30,7 @@ use super::tag_pills::text::{COMPACT_ROW_PILLS, ROW_PILLS};
 use super::{BrowseItem, CardObject};
 use crate::pages::browser_text;
 use crate::ui::rows;
+use crate::ui::selection::text::with_selected;
 
 pub mod text;
 
@@ -38,7 +41,7 @@ mod imp {
     use adw::subclass::prelude::*;
     use gtk::glib;
 
-    use crate::widgets::{BrowseItem, TagPills};
+    use crate::widgets::TagPills;
 
     #[derive(Debug, Default, gtk::CompositeTemplate, glib::Properties)]
     #[properties(wrapper_type = super::CardRow)]
@@ -61,8 +64,8 @@ mod imp {
         /// A narrow row: fewer pills, so the back keeps some room.
         #[property(get, set)]
         pub compact: Cell<bool>,
-        /// Cards are being chosen (All Cards): the check button shows, the
-        /// menu does not.
+        /// Cards are being chosen: the check button shows, the menu does
+        /// not.
         #[property(get, set)]
         pub selecting: Cell<bool>,
         /// Another deck exists to move the card to (the page's, from
@@ -77,9 +80,10 @@ mod imp {
         pub browsing: Cell<bool>,
         /// The bound card, empty while unbound.
         pub card_id: RefCell<String>,
-        /// All Cards: the bound item, whose `selected` the row follows, and
-        /// the list item whose accessible label says it.
-        pub item: RefCell<Option<BrowseItem>>,
+        /// The bound item (a `BrowseItem` or a `CardObject`), whose
+        /// `selected` the row follows, and the list item whose accessible
+        /// label says it.
+        pub item: RefCell<Option<glib::Object>>,
         pub list_item: glib::WeakRef<gtk::ListItem>,
         pub selected_handler: RefCell<Option<glib::SignalHandlerId>>,
         /// How many times an item's `selected` reached the row, so the
@@ -134,6 +138,7 @@ mod imp {
             row.connect_compact_notify(super::CardRow::update_pill_count);
             row.update_pill_count();
             row.connect_selecting_notify(super::CardRow::update_selection);
+            row.add_long_press();
             // `gtk_widget_action_set_enabled` (GtkWidget docs): a menu item
             // naming a disabled action is insensitive.
             row.connect_can_move_notify(|row| row.action_set_enabled("row.move", row.can_move()));
@@ -158,28 +163,41 @@ impl Default for CardRow {
 }
 
 impl CardRow {
-    /// A row of All Cards: its menu acts through `browser.*`, it shows the
-    /// deck and status line, and a long press on a touch screen starts
-    /// choosing cards with it (a mouse has the Select button and Ctrl+A).
+    /// A row of All Cards: its menu acts through `browser.*`, and it shows
+    /// the deck and status line.
     pub fn for_browser() -> Self {
         let row = Self::default();
         let imp = row.imp();
         imp.browsing.set(true);
         imp.caption_label.set_visible(true);
-        // Claiming the sequence keeps the release from activating the row
-        // (GtkGesture docs: a claimed sequence cancels the other gestures).
+        row
+    }
+
+    /// A long press on a touch screen starts choosing cards with this one
+    /// (a mouse has the Select button and Ctrl+A). Claiming the sequence
+    /// keeps the release from activating the row (`GtkGesture` docs: a
+    /// claimed sequence cancels the other gestures).
+    fn add_long_press(&self) {
         let press = gtk::GestureLongPress::new();
         press.set_touch_only(true);
         press.connect_pressed(glib::clone!(
-            #[weak]
-            row,
+            #[weak(rename_to = row)]
+            self,
             move |gesture, _, _| {
                 gesture.set_state(gtk::EventSequenceState::Claimed);
                 row.forward("select-card");
             }
         ));
-        row.add_controller(press);
-        row
+        self.add_controller(press);
+    }
+
+    /// Shows a deck page's `item` in this row, and follows whether it is
+    /// chosen; `list_item`'s accessible label is what a screen reader says
+    /// for the row.
+    pub fn bind_card(&self, item: &CardObject, list_item: &gtk::ListItem) {
+        self.unbind();
+        self.bind(item);
+        self.follow(item.upcast_ref(), list_item);
     }
 
     /// Shows `item` in this row. Called on every bind of a recycled row,
@@ -216,19 +234,29 @@ impl CardRow {
             imp.caption_label
                 .set_label(&browser_text::caption(&row.deck_name, &status));
         }
+        self.follow(item.upcast_ref(), list_item);
+    }
+
+    /// Follows `item`'s `selected` (a `BrowseItem`'s or a `CardObject`'s),
+    /// and says the row in `list_item`'s accessible label.
+    fn follow(&self, item: &glib::Object, list_item: &gtk::ListItem) {
+        let imp = self.imp();
         imp.list_item.set(Some(list_item));
         imp.item.replace(Some(item.clone()));
-        let handler = item.connect_selected_notify(glib::clone!(
-            #[weak(rename_to = row)]
-            self,
-            move |_| {
-                #[cfg(test)]
-                row.imp()
-                    .selected_seen
-                    .set(row.imp().selected_seen.get() + 1);
-                row.update_selection();
-            }
-        ));
+        let handler = item.connect_notify_local(
+            Some("selected"),
+            glib::clone!(
+                #[weak(rename_to = row)]
+                self,
+                move |_, _| {
+                    #[cfg(test)]
+                    row.imp()
+                        .selected_seen
+                        .set(row.imp().selected_seen.get() + 1);
+                    row.update_selection();
+                }
+            ),
+        );
         imp.selected_handler.replace(Some(handler));
         self.update_selection();
     }
@@ -262,8 +290,8 @@ impl CardRow {
         imp.card_id.replace(id.to_owned());
     }
 
-    /// The check button, the menu and the accessible label of an All Cards
-    /// row, after `selecting` or the item's `selected` changed.
+    /// The check button, the menu and the accessible label of a row, after
+    /// `selecting` or the item's `selected` changed.
     fn update_selection(&self) {
         let imp = self.imp();
         let selecting = self.selecting();
@@ -273,8 +301,13 @@ impl CardRow {
         let Some(item) = item.as_ref() else {
             return;
         };
-        imp.check.set_active(item.selected());
-        if let Some(list_item) = imp.list_item.upgrade() {
+        let selected = item.property::<bool>("selected");
+        imp.check.set_active(selected);
+        let Some(list_item) = imp.list_item.upgrade() else {
+            return;
+        };
+        let chosen = selecting.then_some(selected);
+        if let Some(item) = item.downcast_ref::<BrowseItem>() {
             let row = item.row();
             let status = browser_text::status_text(row.status, rappel_core::time::now_ms());
             list_item.set_accessible_label(&browser_text::row_label(
@@ -286,8 +319,12 @@ impl CardRow {
                 ),
                 &row.deck_name,
                 &status,
-                selecting.then(|| item.selected()),
+                chosen,
             ));
+        } else if let Some(item) = item.downcast_ref::<CardObject>() {
+            // Screen readers read the front, the back and the tags, not
+            // "row" (`card_row::text::row_label`).
+            list_item.set_accessible_label(&with_selected(item.row_label(), chosen));
         }
     }
 

@@ -142,8 +142,21 @@ fn bound_keys() -> Vec<(&'static str, Vec<String>)> {
                 .collect(),
         ),
         (
+            "Deck",
+            crate::ui::selection::text::LIST_KEYS
+                .iter()
+                .map(|&(key, ctrl, _)| trigger(key, ctrl))
+                .chain(
+                    crate::ui::select_all::KEYS
+                        .iter()
+                        .map(|&key| trigger(key, true)),
+                )
+                .chain([plain(gtk::gdk::Key::Escape)])
+                .collect(),
+        ),
+        (
             "All Cards",
-            browser_text::LIST_KEYS
+            crate::ui::selection::text::LIST_KEYS
                 .iter()
                 .map(|&(key, ctrl, _)| trigger(key, ctrl))
                 .chain(

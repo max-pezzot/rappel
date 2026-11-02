@@ -16,7 +16,6 @@ msgid "_Restore"
 msgstr ""
 
 #: crates/app/data/browser_dialogs.blp
-#: crates/app/data/browser_page.blp
 #: crates/app/data/card_editor.blp
 #: crates/app/data/clean_up_media_dialog.blp
 #: crates/app/data/deck_name_dialog.blp
@@ -24,6 +23,7 @@ msgstr ""
 #: crates/app/data/import_dialog.blp
 #: crates/app/data/restore_dialog.blp
 #: crates/app/data/retention_dialog.blp
+#: crates/app/data/selection_header.blp
 #: crates/app/data/start_fresh_dialog.blp
 #: crates/app/src/transfer/anki.rs
 msgid "_Cancel"
@@ -51,20 +51,13 @@ msgid "Search cards"
 msgstr ""
 
 #: crates/app/data/browser_page.blp
-#: crates/app/data/shortcuts-dialog.blp
-msgid "Select All"
-msgstr ""
-
-#: crates/app/data/browser_page.blp
-msgid "Select _All"
-msgstr ""
-
-#: crates/app/data/browser_page.blp
-#: crates/app/src/pages/browser_page/text.rs
+#: crates/app/data/deck_page.blp
+#: crates/app/src/ui/selection/text.rs
 msgid "Select Cards"
 msgstr ""
 
 #: crates/app/data/browser_page.blp
+#: crates/app/data/shortcuts-dialog.blp
 msgid "Deck"
 msgstr ""
 
@@ -103,68 +96,6 @@ msgstr ""
 #: crates/app/data/browser_page.blp
 #: crates/app/data/deck_page.blp
 msgid "Cards"
-msgstr ""
-
-#: crates/app/data/browser_page.blp
-msgid "Move to Deck"
-msgstr ""
-
-#: crates/app/data/browser_page.blp
-msgid "Move selected cards to a deck"
-msgstr ""
-
-#: crates/app/data/browser_page.blp
-msgid "Move…"
-msgstr ""
-
-#: crates/app/data/browser_page.blp
-#: crates/app/data/card_editor.blp
-#: crates/app/data/card_info_dialog.blp
-#: crates/app/data/shortcuts-dialog.blp
-#: crates/app/src/widgets/tag_entry.rs
-msgid "Tags"
-msgstr ""
-
-#: crates/app/data/browser_page.blp
-msgid "Tags of selected cards"
-msgstr ""
-
-#: crates/app/data/browser_page.blp
-#: crates/app/src/pages/browser_page/text.rs
-msgid "Suspend"
-msgstr ""
-
-#: crates/app/data/browser_page.blp
-#: crates/app/src/pages/browser_page/text.rs
-msgid "Suspend selected cards"
-msgstr ""
-
-#: crates/app/data/browser_page.blp
-msgid "Delete"
-msgstr ""
-
-#: crates/app/data/browser_page.blp
-msgid "Delete selected cards"
-msgstr ""
-
-#: crates/app/data/browser_page.blp
-msgid "Reset Progress"
-msgstr ""
-
-#: crates/app/data/browser_page.blp
-msgid "Reset progress of selected cards"
-msgstr ""
-
-#: crates/app/data/browser_page.blp
-msgid "Reset"
-msgstr ""
-
-#: crates/app/data/browser_page.blp
-msgid "_Add Tags…"
-msgstr ""
-
-#: crates/app/data/browser_page.blp
-msgid "_Remove Tag…"
 msgstr ""
 
 #: crates/app/data/card_editor.blp
@@ -209,6 +140,14 @@ msgstr ""
 #: crates/app/data/card_editor.blp
 #: crates/app/src/dialogs/card_editor/media.rs
 msgid "Insert Audio in Back"
+msgstr ""
+
+#: crates/app/data/card_editor.blp
+#: crates/app/data/card_info_dialog.blp
+#: crates/app/data/selection_bar.blp
+#: crates/app/data/shortcuts-dialog.blp
+#: crates/app/src/widgets/tag_entry.rs
+msgid "Tags"
 msgstr ""
 
 #: crates/app/data/card_editor.blp
@@ -672,6 +611,69 @@ msgstr ""
 msgid "_Delete Card…"
 msgstr ""
 
+#: crates/app/data/selection_bar.blp
+msgid "Move to Deck"
+msgstr ""
+
+#: crates/app/data/selection_bar.blp
+msgid "Move selected cards to a deck"
+msgstr ""
+
+#: crates/app/data/selection_bar.blp
+msgid "Move…"
+msgstr ""
+
+#: crates/app/data/selection_bar.blp
+msgid "Tags of selected cards"
+msgstr ""
+
+#: crates/app/data/selection_bar.blp
+#: crates/app/src/ui/selection/text.rs
+msgid "Suspend"
+msgstr ""
+
+#: crates/app/data/selection_bar.blp
+#: crates/app/src/ui/selection/text.rs
+msgid "Suspend selected cards"
+msgstr ""
+
+#: crates/app/data/selection_bar.blp
+msgid "Delete"
+msgstr ""
+
+#: crates/app/data/selection_bar.blp
+msgid "Delete selected cards"
+msgstr ""
+
+#: crates/app/data/selection_bar.blp
+msgid "Reset Progress"
+msgstr ""
+
+#: crates/app/data/selection_bar.blp
+msgid "Reset progress of selected cards"
+msgstr ""
+
+#: crates/app/data/selection_bar.blp
+msgid "Reset"
+msgstr ""
+
+#: crates/app/data/selection_bar.blp
+msgid "_Add Tags…"
+msgstr ""
+
+#: crates/app/data/selection_bar.blp
+msgid "_Remove Tag…"
+msgstr ""
+
+#: crates/app/data/selection_header.blp
+#: crates/app/data/shortcuts-dialog.blp
+msgid "Select All"
+msgstr ""
+
+#: crates/app/data/selection_header.blp
+msgid "Select _All"
+msgstr ""
+
 #: crates/app/data/setting_page.blp
 msgid "A Setting Is Damaged"
 msgstr ""
@@ -804,12 +806,24 @@ msgid "In an empty tag field"
 msgstr ""
 
 #: crates/app/data/shortcuts-dialog.blp
-#: crates/app/src/pages/browser_page.rs
+#: crates/app/src/ui/selection.rs
 msgid "Remove Tag"
 msgstr ""
 
 #: crates/app/data/shortcuts-dialog.blp
 msgid "On a tag’s remove button"
+msgstr ""
+
+#: crates/app/data/shortcuts-dialog.blp
+msgid "Select or Deselect Card"
+msgstr ""
+
+#: crates/app/data/shortcuts-dialog.blp
+msgid "While selecting cards"
+msgstr ""
+
+#: crates/app/data/shortcuts-dialog.blp
+msgid "Stop Selecting"
 msgstr ""
 
 #: crates/app/data/shortcuts-dialog.blp
@@ -822,14 +836,6 @@ msgstr ""
 
 #: crates/app/data/shortcuts-dialog.blp
 msgid "Open Card"
-msgstr ""
-
-#: crates/app/data/shortcuts-dialog.blp
-msgid "Select or Deselect Card"
-msgstr ""
-
-#: crates/app/data/shortcuts-dialog.blp
-msgid "While selecting cards"
 msgstr ""
 
 #: crates/app/data/shortcuts-dialog.blp
@@ -1176,7 +1182,7 @@ msgid "No other deck to move it to"
 msgstr ""
 
 #: crates/app/src/dialogs/move_card.rs
-#: crates/app/src/pages/browser_page.rs
+#: crates/app/src/ui/selection.rs
 msgid "_Move"
 msgstr ""
 
@@ -1217,6 +1223,7 @@ msgstr ""
 #: crates/app/src/pages/browser_page.rs
 #: crates/app/src/pages/deck_page.rs
 #: crates/app/src/pages/decks_page.rs
+#: crates/app/src/ui/selection.rs
 msgid "The decks could not be read: {error}"
 msgstr ""
 
@@ -1233,28 +1240,9 @@ msgstr ""
 msgid "The tags could not be read: {error}"
 msgstr ""
 
-#: crates/app/src/pages/browser_page.rs
-msgid "Move Cards"
-msgstr ""
-
-#: crates/app/src/pages/browser_page.rs
-msgid "_Remove"
-msgstr ""
-
-#. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
-#: crates/app/src/pages/browser_page.rs
-msgid "The cards could not be changed: {error}"
-msgstr ""
-
 #. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
 #: crates/app/src/pages/browser_page.rs
 msgid "The decks and tags could not be read: {error}"
-msgstr ""
-
-#. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
-#: crates/app/src/pages/browser_page.rs
-#: crates/app/src/pages/deck_page.rs
-msgid "The change could not be undone: {error}"
 msgstr ""
 
 #. Translators: a card's status; {when} is "in 3 days".
@@ -1272,32 +1260,9 @@ msgstr ""
 msgid "{card}, deck: {deck}, {status}"
 msgstr ""
 
-#. Translators: {row} is a card as a screen reader says it, while cards are being chosen.
-#: crates/app/src/pages/browser_page/text.rs
-msgid "{row}, selected"
-msgstr ""
-
-#. Translators: {row} is a card as a screen reader says it, while cards are being chosen.
-#: crates/app/src/pages/browser_page/text.rs
-msgid "{row}, not selected"
-msgstr ""
-
 #: crates/app/src/pages/browser_page/text.rs
 msgid "No cards"
 msgstr ""
-
-#. Translators: the title while cards are being chosen; {count} is how many are.
-#: crates/app/src/pages/browser_page/text.rs
-msgid "{count} Selected"
-msgid_plural "{count} Selected"
-msgstr[0] ""
-msgstr[1] ""
-
-#: crates/app/src/pages/browser_page/text.rs
-msgid "This card has no progress to reset"
-msgid_plural "These cards have no progress to reset"
-msgstr[0] ""
-msgstr[1] ""
 
 #: crates/app/src/pages/browser_page/text.rs
 msgid "Cards you add to your decks will show up here"
@@ -1328,10 +1293,6 @@ msgid "_Clear Search and Filters"
 msgstr ""
 
 #: crates/app/src/pages/browser_page/text.rs
-msgid "The list was out of date; nothing was changed"
-msgstr ""
-
-#: crates/app/src/pages/browser_page/text.rs
 #: crates/app/src/pages/stats_page.rs
 msgid "All Decks"
 msgstr ""
@@ -1340,116 +1301,11 @@ msgstr ""
 msgid "All Tags"
 msgstr ""
 
-#: crates/app/src/pages/browser_page/text.rs
-msgid "Unsuspend"
-msgstr ""
-
-#: crates/app/src/pages/browser_page/text.rs
-msgid "Unsuspend selected cards"
-msgstr ""
-
-#. Translators: {count} is the number of cards chosen.
-#: crates/app/src/pages/browser_page/text.rs
-msgid "Choose the deck to move {count} card to."
-msgid_plural "Choose the deck to move {count} cards to."
-msgstr[0] ""
-msgstr[1] ""
-
-#. Translators: {count} is the number of cards chosen.
-#: crates/app/src/pages/browser_page/text.rs
-msgid "Choose the tags to put on {count} card. Press Enter or type a comma after each one."
-msgid_plural "Choose the tags to put on {count} cards. Press Enter or type a comma after each one."
-msgstr[0] ""
-msgstr[1] ""
-
-#. Translators: {count} is the number of cards chosen.
-#: crates/app/src/pages/browser_page/text.rs
-msgid "Choose the tag to take off {count} card."
-msgid_plural "Choose the tag to take off {count} cards."
-msgstr[0] ""
-msgstr[1] ""
-
-#: crates/app/src/pages/browser_page/text.rs
-msgid "The chosen cards have no tags"
-msgstr ""
-
 #. Translators: {count} is a number of cards.
 #: crates/app/src/pages/browser_page/text.rs
 #: crates/app/src/ui/text.rs
 msgid "{count} card"
 msgid_plural "{count} cards"
-msgstr[0] ""
-msgstr[1] ""
-
-#. Translators: an Undo toast, at most 24 characters with 99,999 cards (it must fit beside Undo on a phone); {count} is a number of cards.
-#: crates/app/src/pages/browser_page/text.rs
-msgid "{count} card moved"
-msgid_plural "{count} cards moved"
-msgstr[0] ""
-msgstr[1] ""
-
-#. Translators: an Undo toast, at most 24 characters with 99,999 cards (it must fit beside Undo on a phone); {count} is a number of cards.
-#: crates/app/src/pages/browser_page/text.rs
-msgid "{count} card tagged"
-msgid_plural "{count} cards tagged"
-msgstr[0] ""
-msgstr[1] ""
-
-#. Translators: a toast: its first sentence is its title, the rest is behind Details. {count} is a number of cards, {limit} the most tags a card can have (100).
-#: crates/app/src/pages/browser_page/text.rs
-msgid "{count} card left out. A card can have at most {limit} tags"
-msgid_plural "{count} cards left out. A card can have at most {limit} tags"
-msgstr[0] ""
-msgstr[1] ""
-
-#. Translators: a toast: what is before ";" is its title, the rest is behind Details. {limit} is the most tags a card can have (100).
-#: crates/app/src/pages/browser_page/text.rs
-msgid "No tags added; a card can have at most {limit} tags"
-msgstr ""
-
-#. Translators: an Undo toast, at most 24 characters with 99,999 cards (it must fit beside Undo on a phone); {count} is a number of cards.
-#: crates/app/src/pages/browser_page/text.rs
-msgid "{count} card untagged"
-msgid_plural "{count} cards untagged"
-msgstr[0] ""
-msgstr[1] ""
-
-#. Translators: an Undo toast, at most 24 characters with 99,999 cards (it must fit beside Undo on a phone).
-#: crates/app/src/pages/browser_page/text.rs
-msgid "{count} card suspended"
-msgid_plural "{count} cards suspended"
-msgstr[0] ""
-msgstr[1] ""
-
-#. Translators: an Undo toast, at most 24 characters with 99,999 cards (it must fit beside Undo on a phone).
-#: crates/app/src/pages/browser_page/text.rs
-msgid "{count} card unsuspended"
-msgid_plural "{count} cards unsuspended"
-msgstr[0] ""
-msgstr[1] ""
-
-#. Translators: an Undo toast after Reset Progress, at most 24 characters with 99,999 cards (it must fit beside Undo on a phone).
-#: crates/app/src/pages/browser_page/text.rs
-msgid "{count} card reset"
-msgid_plural "{count} cards reset"
-msgstr[0] ""
-msgstr[1] ""
-
-#. Translators: an Undo toast, at most 24 characters with 99,999 cards (it must fit beside Undo on a phone).
-#: crates/app/src/pages/browser_page/text.rs
-msgid "{count} card deleted"
-msgid_plural "{count} cards deleted"
-msgstr[0] ""
-msgstr[1] ""
-
-#: crates/app/src/pages/browser_page/text.rs
-msgid "Nothing changed; the cards were already like that"
-msgstr ""
-
-#. Translators: a toast: what is before ";" is its title, the rest is behind Details. {done} of {count} cards came back.
-#: crates/app/src/pages/browser_page/text.rs
-msgid "{done} of {count} card restored; the others changed since"
-msgid_plural "{done} of {count} cards restored; the others changed since"
 msgstr[0] ""
 msgstr[1] ""
 
@@ -1522,6 +1378,12 @@ msgstr ""
 #. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
 #: crates/app/src/pages/deck_page.rs
 msgid "The reset could not be undone: {error}"
+msgstr ""
+
+#. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
+#: crates/app/src/pages/deck_page.rs
+#: crates/app/src/ui/selection.rs
+msgid "The change could not be undone: {error}"
 msgstr ""
 
 #. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
@@ -2563,6 +2425,151 @@ msgstr[1] ""
 #: crates/app/src/ui/rows.rs
 msgid "Actions for {name}"
 msgstr ""
+
+#: crates/app/src/ui/selection.rs
+msgid "Move Cards"
+msgstr ""
+
+#: crates/app/src/ui/selection.rs
+msgid "_Remove"
+msgstr ""
+
+#. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
+#: crates/app/src/ui/selection.rs
+msgid "The cards could not be changed: {error}"
+msgstr ""
+
+#. Translators: {row} is a card as a screen reader says it, while cards are being chosen.
+#: crates/app/src/ui/selection/text.rs
+msgid "{row}, selected"
+msgstr ""
+
+#. Translators: {row} is a card as a screen reader says it, while cards are being chosen.
+#: crates/app/src/ui/selection/text.rs
+msgid "{row}, not selected"
+msgstr ""
+
+#. Translators: the title while cards are being chosen; {count} is how many are.
+#: crates/app/src/ui/selection/text.rs
+msgid "{count} Selected"
+msgid_plural "{count} Selected"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/app/src/ui/selection/text.rs
+msgid "This card has no progress to reset"
+msgid_plural "These cards have no progress to reset"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/app/src/ui/selection/text.rs
+msgid "The list was out of date; nothing was changed"
+msgstr ""
+
+#: crates/app/src/ui/selection/text.rs
+msgid "Unsuspend"
+msgstr ""
+
+#: crates/app/src/ui/selection/text.rs
+msgid "Unsuspend selected cards"
+msgstr ""
+
+#. Translators: {count} is the number of cards chosen.
+#: crates/app/src/ui/selection/text.rs
+msgid "Choose the deck to move {count} card to."
+msgid_plural "Choose the deck to move {count} cards to."
+msgstr[0] ""
+msgstr[1] ""
+
+#. Translators: {count} is the number of cards chosen.
+#: crates/app/src/ui/selection/text.rs
+msgid "Choose the tags to put on {count} card. Press Enter or type a comma after each one."
+msgid_plural "Choose the tags to put on {count} cards. Press Enter or type a comma after each one."
+msgstr[0] ""
+msgstr[1] ""
+
+#. Translators: {count} is the number of cards chosen.
+#: crates/app/src/ui/selection/text.rs
+msgid "Choose the tag to take off {count} card."
+msgid_plural "Choose the tag to take off {count} cards."
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/app/src/ui/selection/text.rs
+msgid "The chosen cards have no tags"
+msgstr ""
+
+#. Translators: an Undo toast, at most 24 characters with 99,999 cards (it must fit beside Undo on a phone); {count} is a number of cards.
+#: crates/app/src/ui/selection/text.rs
+msgid "{count} card moved"
+msgid_plural "{count} cards moved"
+msgstr[0] ""
+msgstr[1] ""
+
+#. Translators: an Undo toast, at most 24 characters with 99,999 cards (it must fit beside Undo on a phone); {count} is a number of cards.
+#: crates/app/src/ui/selection/text.rs
+msgid "{count} card tagged"
+msgid_plural "{count} cards tagged"
+msgstr[0] ""
+msgstr[1] ""
+
+#. Translators: a toast: its first sentence is its title, the rest is behind Details. {count} is a number of cards, {limit} the most tags a card can have (100).
+#: crates/app/src/ui/selection/text.rs
+msgid "{count} card left out. A card can have at most {limit} tags"
+msgid_plural "{count} cards left out. A card can have at most {limit} tags"
+msgstr[0] ""
+msgstr[1] ""
+
+#. Translators: a toast: what is before ";" is its title, the rest is behind Details. {limit} is the most tags a card can have (100).
+#: crates/app/src/ui/selection/text.rs
+msgid "No tags added; a card can have at most {limit} tags"
+msgstr ""
+
+#. Translators: an Undo toast, at most 24 characters with 99,999 cards (it must fit beside Undo on a phone); {count} is a number of cards.
+#: crates/app/src/ui/selection/text.rs
+msgid "{count} card untagged"
+msgid_plural "{count} cards untagged"
+msgstr[0] ""
+msgstr[1] ""
+
+#. Translators: an Undo toast, at most 24 characters with 99,999 cards (it must fit beside Undo on a phone).
+#: crates/app/src/ui/selection/text.rs
+msgid "{count} card suspended"
+msgid_plural "{count} cards suspended"
+msgstr[0] ""
+msgstr[1] ""
+
+#. Translators: an Undo toast, at most 24 characters with 99,999 cards (it must fit beside Undo on a phone).
+#: crates/app/src/ui/selection/text.rs
+msgid "{count} card unsuspended"
+msgid_plural "{count} cards unsuspended"
+msgstr[0] ""
+msgstr[1] ""
+
+#. Translators: an Undo toast after Reset Progress, at most 24 characters with 99,999 cards (it must fit beside Undo on a phone).
+#: crates/app/src/ui/selection/text.rs
+msgid "{count} card reset"
+msgid_plural "{count} cards reset"
+msgstr[0] ""
+msgstr[1] ""
+
+#. Translators: an Undo toast, at most 24 characters with 99,999 cards (it must fit beside Undo on a phone).
+#: crates/app/src/ui/selection/text.rs
+msgid "{count} card deleted"
+msgid_plural "{count} cards deleted"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/app/src/ui/selection/text.rs
+msgid "Nothing changed; the cards were already like that"
+msgstr ""
+
+#. Translators: a toast: what is before ";" is its title, the rest is behind Details. {done} of {count} cards came back.
+#: crates/app/src/ui/selection/text.rs
+msgid "{done} of {count} card restored; the others changed since"
+msgid_plural "{done} of {count} cards restored; the others changed since"
+msgstr[0] ""
+msgstr[1] ""
 
 #. Translators: what separates the items of a list of names ("maths, physics, history"); keep the space if your language has one.
 #: crates/app/src/ui/text.rs

@@ -26,8 +26,8 @@ use crate::pages::{
 };
 use crate::ui::dialog;
 use crate::widgets::{
-    BackupRow, CardRow, DeckRow, HistoryRow, TagEntry, TagPills, TagSuggestions,
-    chart_card::ChartCard,
+    BackupRow, CardRow, DeckRow, HistoryRow, SelectionBar, SelectionHeader, TagEntry, TagPills,
+    TagSuggestions, chart_card::ChartCard,
 };
 use crate::window::RappelWindow;
 
@@ -117,6 +117,14 @@ const CHECKS: &[(&str, Load)] = &[
         }),
     ),
     ("review_page.blp", Load::Template(template::<ReviewPage>)),
+    (
+        "selection_bar.blp",
+        Load::Template(template::<SelectionBar>),
+    ),
+    (
+        "selection_header.blp",
+        Load::Template(template::<SelectionHeader>),
+    ),
     ("setting_page.blp", Load::Template(template::<SettingPage>)),
     (
         "shortcuts-dialog.blp",

@@ -1,7 +1,7 @@
 //! Move to Deck… for one card (#102): the choice of a deck, shared by the
 //! deck page's card menu, All Cards' row menu and the review page's Card
 //! Menu, and the Undo toast they all offer. The dialog itself is All Cards'
-//! chooser (`browser_dialogs::choose`, layout in `data/browser_dialogs.blp`);
+//! chooser (`browser_dialogs::choose_closing`, layout in `data/browser_dialogs.blp`);
 //! the move and its Undo are core's `move_cards` and `unmove_cards` through
 //! `AppState`. What each page does with the card afterwards (the row leaves
 //! the list, the card leaves the session) is its own.
@@ -20,6 +20,15 @@ use crate::ui::toast::undo_toast;
 /// archive slice leaves them out here.
 pub fn targets<'a>(decks: &'a [Deck], from: &str) -> Vec<&'a Deck> {
     decks.iter().filter(|deck| deck.id != from).collect()
+}
+
+/// The decks a card of deck `from` can be moved to from its menu, where
+/// the card's deck is read from the list (All Cards): `None` when the card
+/// is not listed (nothing to do), else every deck but its own (empty: no
+/// other deck, so only a notice).
+pub fn card_targets(decks: &[Deck], from: Option<&str>) -> Option<Vec<Deck>> {
+    let from = from?;
+    Some(targets(decks, from).into_iter().cloned().collect())
 }
 
 /// Whether Move to Deck… is offered. For a card of deck `from` it is when
@@ -124,6 +133,22 @@ mod tests {
         assert_eq!(ids("b"), ["a", "c"]);
         // A deck that is not in the list (deleted meanwhile) removes nothing.
         assert_eq!(ids("z"), ["a", "b", "c"]);
+    }
+
+    #[test]
+    fn a_cards_move_targets_leave_out_its_own_deck() {
+        let decks = [deck("a"), deck("b")];
+        let ids = |targets: Option<Vec<Deck>>| -> Option<Vec<String>> {
+            targets.map(|t| t.into_iter().map(|d| d.id).collect())
+        };
+        assert_eq!(
+            ids(card_targets(&decks, Some("a"))),
+            Some(vec!["b".to_owned()])
+        );
+        // One deck: nothing to choose, so only a notice.
+        assert_eq!(ids(card_targets(&decks[..1], Some("a"))), Some(vec![]));
+        // A card that is not listed: nothing is done at all.
+        assert_eq!(card_targets(&decks, None), None);
     }
 
     #[test]
