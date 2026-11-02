@@ -67,13 +67,27 @@ pub(crate) fn dump(store: &Store) -> Vec<(String, Vec<String>)> {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    let tables: Vec<(String, Option<String>)> = conn
-        .prepare("SELECT name, sql FROM sqlite_master WHERE type = 'table' ORDER BY name")
+    // Every table of the main schema, the search index's shadow tables
+    // included, and whether it was made WITHOUT ROWID (`wr`), as SQLite
+    // itself says (`PRAGMA table_list`, SQLite 3.37), not read from its SQL.
+    let tables: Vec<(String, bool)> = conn
+        .prepare(
+            "SELECT name, wr FROM pragma_table_list
+             WHERE schema = 'main' AND type IN ('table', 'shadow', 'virtual')
+               AND name <> 'sqlite_schema'
+             ORDER BY name",
+        )
         .unwrap()
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
         .unwrap()
         .collect::<rusqlite::Result<_>>()
         .unwrap();
+    assert!(
+        tables
+            .iter()
+            .any(|(name, wr)| name == "cards_fts_idx" && *wr),
+        "the search index has a WITHOUT ROWID table: the list must say so"
+    );
     let rows_of = |sql: &str| -> Vec<String> {
         let mut stmt = conn.prepare(sql).unwrap();
         let columns = stmt.column_count();
@@ -91,12 +105,9 @@ pub(crate) fn dump(store: &Store) -> Vec<(String, Vec<String>)> {
         rows
     };
     let mut out = vec![("user_version".to_owned(), vec![version.to_string()])];
-    for (name, sql) in tables {
+    for (name, without_rowid) in tables {
         // A virtual table's rowid is read like any other; a table made
         // WITHOUT ROWID has none.
-        let without_rowid = sql
-            .as_deref()
-            .is_some_and(|sql| sql.to_ascii_uppercase().contains("WITHOUT ROWID"));
         let select = if without_rowid {
             format!("SELECT * FROM \"{name}\"")
         } else {

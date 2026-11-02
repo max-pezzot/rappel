@@ -461,7 +461,7 @@ impl Classified {
 fn classify(conn: &Connection, doc: &Document) -> DbResult<Classified> {
     let mut rows = Classified::default();
     let batches = classify_decks(conn, doc, &mut rows)?;
-    classify_cards(conn, doc, &mut rows)?;
+    classify_cards(conn, doc, &batches, &mut rows)?;
     add_batch_cards(conn, doc, &batches, &mut rows)?;
     classify_tags(conn, doc, &mut rows)?;
     classify_card_tags(conn, doc, &mut rows)?;
@@ -586,7 +586,18 @@ fn classify_decks<'d>(
     Ok(batches)
 }
 
-fn classify_cards(conn: &Connection, doc: &Document, rows: &mut Classified) -> DbResult<()> {
+/// A card is compared without its deck, `suspended` and `deleted_at`
+/// (ADR 0035, 0067). One that the file has in another deck keeps the
+/// database's deck; brought back, it would be live in that deck, so it is
+/// brought back only if that deck is live here or among the decks this
+/// file revives (`batches`), and is left as it is otherwise.
+fn classify_cards(
+    conn: &Connection,
+    doc: &Document,
+    batches: &[(&str, i64)],
+    rows: &mut Classified,
+) -> DbResult<()> {
+    let mut deck_deleted = conn.prepare("SELECT deleted_at FROM decks WHERE id = ?1")?;
     let mut stmt = conn.prepare(
         "SELECT id, deck_id, front_md, back_md, created_at, updated_at, suspended, deleted_at
          FROM cards WHERE id = ?1",
@@ -612,14 +623,31 @@ fn classify_cards(conn: &Connection, doc: &Document, rows: &mut Classified) -> D
             continue;
         };
         let stored_deleted = s.deleted_at;
-        // The database keeps its own `suspended`: an import never changes
-        // how a live card is studied (ADR 0035).
+        let elsewhere = s.deck_id != c.deck_id;
+        let home = s.deck_id.clone();
         let rest_equal = CardRecord {
             deleted_at: c.deleted_at,
             suspended: c.suspended,
+            deck_id: c.deck_id.clone(),
             ..s
         } == *c;
-        match compare(rest_equal, stored_deleted, c.deleted_at) {
+        let mut outcome = compare(rest_equal, stored_deleted, c.deleted_at);
+        if elsewhere && let Outcome::Revive(_) = outcome {
+            let home_deleted: Option<i64> = deck_deleted.query_row([&home], |r| r.get(0))?;
+            let revived_now = batches.iter().any(|&(d, _)| d == home);
+            if home_deleted.is_some() && !revived_now {
+                outcome = Outcome::Present;
+            }
+        }
+        if elsewhere {
+            let stays_live = match outcome {
+                Outcome::Revive(_) => true,
+                Outcome::Present => stored_deleted.is_none(),
+                Outcome::Conflict => false,
+            };
+            rows.summary.cards_kept_in_their_deck += usize::from(stays_live);
+        }
+        match outcome {
             Outcome::Present => rows.summary.cards.present += 1,
             // The stamp matters only for a deck, where it marks the batch.
             Outcome::Revive(_) => {

@@ -215,10 +215,16 @@ pub(super) fn plan_view(summary: &ImportSummary) -> PlanView {
         summary.review_events.new,
     );
     let revived = decks_cards_reviews(summary.decks.revived, summary.cards.revived, 0);
+    let kept = kept_in_their_deck(summary.cards_kept_in_their_deck);
     if summary.is_noop() {
+        let mut body = gettext("Everything in this file is already here.");
+        if let Some(kept) = kept {
+            body.push_str(&crate::i18n::pgettext("sentence separator", " "));
+            body.push_str(&kept);
+        }
         return PlanView {
             heading: gettext("Nothing to Import"),
-            body: gettext("Everything in this file is already here."),
+            body,
             can_import: false,
         };
     }
@@ -276,6 +282,7 @@ pub(super) fn plan_view(summary: &ImportSummary) -> PlanView {
         summary.review_events.present,
     );
     sentences.extend(already_here(decks, cards, reviews));
+    sentences.extend(kept);
     match summary.settings {
         SettingsImport::Applied => {
             sentences.push(gettext("Your settings are replaced by the file’s."));
@@ -293,6 +300,25 @@ pub(super) fn plan_view(summary: &ImportSummary) -> PlanView {
         body,
         can_import: true,
     }
+}
+
+/// The sentence about the cards the file has in another deck, which stay
+/// where they are (ADR 0067), if any: moved or merged here, or moved on
+/// the machine the file comes from, either way not moved by an import.
+fn kept_in_their_deck(cards: usize) -> Option<String> {
+    (cards > 0).then(|| {
+        counted(
+            // Translators: {count} is a number of cards that the imported
+            // file has in another deck; the import leaves them where they
+            // are.
+            &ngettext(
+                "{count} card is in another deck in the file and stays in the one it is in now.",
+                "{count} cards are in another deck in the file and stay in the ones they are in now.",
+                cards,
+            ),
+            cards,
+        )
+    })
 }
 
 /// The sentence about the rows the database already has, if any.
@@ -517,6 +543,28 @@ mod tests {
             view.body,
             "This adds 1 deck and 4 reviews. This brings back 1 deck and 1 card you deleted. \
              2 decks are already here and will be skipped. Your data is backed up first."
+        );
+    }
+
+    #[test]
+    fn cards_in_another_deck_in_the_file_are_told() {
+        let mut s = summary(counts(0, 1), counts(1, 3), counts(0, 0));
+        s.cards_kept_in_their_deck = 3;
+        assert_eq!(
+            plan_view(&s).body,
+            "This adds 1 card. 1 deck and 3 cards are already here and will be skipped. \
+             3 cards are in another deck in the file and stay in the ones they are in now. \
+             Your data is backed up first."
+        );
+        // Nothing else to import: said all the same.
+        let mut s = summary(counts(0, 1), counts(0, 1), counts(0, 0));
+        s.cards_kept_in_their_deck = 1;
+        let view = plan_view(&s);
+        assert!(!view.can_import);
+        assert_eq!(
+            view.body,
+            "Everything in this file is already here. \
+             1 card is in another deck in the file and stays in the one it is in now."
         );
     }
 

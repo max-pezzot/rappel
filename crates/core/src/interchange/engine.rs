@@ -575,6 +575,14 @@ impl<'c> Engine<'c> {
             // that deck back. It stays deleted, as the database has it.
             outcome = Outcome::Present;
         }
+        let live_after = match outcome {
+            Outcome::Revive(_) => true,
+            Outcome::Present => stored_deleted.is_none(),
+            Outcome::Conflict => false,
+        };
+        if moved && live_after {
+            self.summary.cards_kept_in_their_deck += 1;
+        }
         match outcome {
             Outcome::Present => {
                 self.summary.cards.present += 1;

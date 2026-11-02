@@ -272,3 +272,107 @@ fn a_deleted_card_in_another_deck_is_revived_only_into_a_live_deck() {
         (later, None)
     );
 }
+
+/// `bytes` with card `id`'s record changed by `f`.
+fn with_card(bytes: &[u8], id: &str, f: impl Fn(&mut Value)) -> Vec<u8> {
+    let mut file = json_of(bytes);
+    for c in file["cards"].as_array_mut().unwrap() {
+        if c["id"] == json!(id) {
+            f(c);
+        }
+    }
+    archive_of(&file)
+}
+
+/// Two decks, "Other" with one card, and that card moved to the sample's
+/// deck since an export (which has it in "Other"). Returns the env, the
+/// export, the sample's deck, "Other" and the card.
+fn moved_since_export() -> (Env, Vec<u8>, String, String, String) {
+    let (mut env, maths, _) = sample_env();
+    let other = env.store.create_deck("Other").unwrap().id;
+    let card = env.store.add_card(&other, "q", "a").unwrap().id;
+    let old = env.export();
+    env.store
+        .move_cards(std::slice::from_ref(&card), &maths)
+        .unwrap();
+    (env, old, maths, other, card)
+}
+
+/// Moved here, deleted in the file: an import never deletes, so it stays
+/// live where it is.
+#[test]
+fn a_moved_card_deleted_in_the_file_stays_live_here() {
+    let (mut env, old, maths, _, card) = moved_since_export();
+    let file = with_card(&old, &card, |c| c["deleted_at"] = json!(T0 + 5));
+    let plan = env.plan(&file).unwrap();
+    assert_eq!(plan.summary().conflicts, []);
+    assert_eq!(plan.summary().cards_kept_in_their_deck, 1);
+    assert!(plan.summary().is_noop());
+    env.import(&file).unwrap();
+    assert_eq!(
+        (deck_of(&env.store, &card), deleted_at(&env.store, &card)),
+        (maths, None)
+    );
+}
+
+/// Moved here, then deleted on both sides: already present, nothing to
+/// tell (the user sees neither).
+#[test]
+fn a_moved_card_deleted_on_both_sides_is_present_and_not_counted() {
+    let (mut env, old, maths, _, card) = moved_since_export();
+    env.store.delete_card(&card).unwrap();
+    let stamp = deleted_at(&env.store, &card);
+    let file = with_card(&old, &card, |c| c["deleted_at"] = json!(T0 + 5));
+    let plan = env.plan(&file).unwrap();
+    assert_eq!(plan.summary().conflicts, []);
+    assert_eq!(plan.summary().cards_kept_in_their_deck, 0);
+    assert!(plan.summary().is_noop());
+    env.import(&file).unwrap();
+    assert_eq!(
+        (deck_of(&env.store, &card), deleted_at(&env.store, &card)),
+        (maths, stamp)
+    );
+}
+
+/// Moved and suspended here: both are the database's own (ADR 0035, 0067).
+#[test]
+fn a_moved_card_keeps_its_deck_and_its_suspension() {
+    let (mut env, old, maths, _, card) = moved_since_export();
+    env.store
+        .set_suspended(std::slice::from_ref(&card), true)
+        .unwrap();
+    let plan = env.plan(&old).unwrap();
+    assert_eq!(plan.summary().conflicts, []);
+    assert_eq!(plan.summary().cards_kept_in_their_deck, 1);
+    env.import(&old).unwrap();
+    assert_eq!(deck_of(&env.store, &card), maths);
+    assert!(env.store.card(&card).unwrap().suspended);
+}
+
+/// A deck revived by the import brings back the cards deleted with it,
+/// but one the file has follows its own row: deleted there (in another
+/// deck), it stays deleted here, in the revived deck.
+#[test]
+fn a_batch_card_the_file_has_deleted_in_another_deck_stays_deleted() {
+    let (mut env, old, maths, _, card) = moved_since_export();
+    let kept = env.store.add_card(&maths, "kept", "a").unwrap().id;
+    // The sample's deck, now holding the moved card, is deleted with both.
+    env.store.delete_deck(&maths).unwrap();
+    let stamp = deleted_at(&env.store, &card);
+    assert!(stamp.is_some());
+    let file = with_card(&old, &card, |c| c["deleted_at"] = json!(T0 + 5));
+    let plan = env.plan(&file).unwrap();
+    assert_eq!(plan.summary().conflicts, []);
+    assert_eq!(plan.summary().decks.revived, 1);
+    assert_eq!(plan.summary().cards_kept_in_their_deck, 0);
+    env.import(&file).unwrap();
+    assert_eq!(
+        (deck_of(&env.store, &card), deleted_at(&env.store, &card)),
+        (maths.clone(), stamp)
+    );
+    // The batch card the file lacks comes back with the deck.
+    assert_eq!(deleted_at(&env.store, &kept), None);
+    let after = env.export();
+    env.import(&file).unwrap();
+    assert_eq!(env.export(), after);
+}

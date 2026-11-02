@@ -1216,7 +1216,7 @@ msgstr ""
 
 #. Translators: a toast: what is before ":" is its title, the rest is behind Details. {name} is the deck that was merged, {target} the deck it was merged into, which was deleted since.
 #: crates/app/src/dialogs/merge_deck.rs
-msgid "“{name}” could not be restored: “{target}” was deleted since. Undo that first, then try again."
+msgid "“{name}” could not be restored: “{target}” was deleted since."
 msgstr ""
 
 #. Translators: a toast: what is before ":" is its title, the rest is behind Details. {name} is a deck's name.
@@ -2410,6 +2410,13 @@ msgstr ""
 #: crates/app/src/transfer/text.rs
 msgid "Import Data?"
 msgstr ""
+
+#. Translators: {count} is a number of cards that the imported file has in another deck; the import leaves them where they are.
+#: crates/app/src/transfer/text.rs
+msgid "{count} card is in another deck in the file and stays in the one it is in now."
+msgid_plural "{count} cards are in another deck in the file and stay in the ones they are in now."
+msgstr[0] ""
+msgstr[1] ""
 
 #. Translators: {present} is a list of counts ("2 decks and 3 cards"); the plural follows their total.
 #: crates/app/src/transfer/text.rs

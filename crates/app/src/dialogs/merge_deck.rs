@@ -226,9 +226,7 @@ pub fn not_restored_text(source: &Deck, target: &Deck, err: &Error) -> String {
             // Translators: a toast: what is before ":" is its title, the
             // rest is behind Details. {name} is the deck that was merged,
             // {target} the deck it was merged into, which was deleted since.
-            &gettext(
-                "“{name}” could not be restored: “{target}” was deleted since. Undo that first, then try again.",
-            ),
+            &gettext("“{name}” could not be restored: “{target}” was deleted since."),
             &[("name", name), ("target", &target.name)],
         ),
         Error::DeckNotFound(_) => fill(
@@ -315,8 +313,7 @@ mod tests {
         target.name = "Languages".to_owned();
         assert_eq!(
             not_restored_text(&source, &target, &Error::DeckNotFound("t".to_owned())),
-            "“Spanish” could not be restored: “Languages” was deleted since. \
-             Undo that first, then try again."
+            "“Spanish” could not be restored: “Languages” was deleted since."
         );
         assert_eq!(
             not_restored_text(&source, &target, &Error::DeckNotFound("s".to_owned())),
