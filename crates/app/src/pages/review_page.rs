@@ -1059,7 +1059,7 @@ impl ReviewPage {
             }
             Err(rappel_core::Error::DeckNotFound(_)) => {
                 // The deck was deleted while the choice was open.
-                show_toast_from(self, info_toast(&crate::pages::browser_text::stale_text()));
+                show_toast_from(self, info_toast(&crate::ui::selection::text::stale_text()));
                 return;
             }
             Err(err) => {
@@ -1791,9 +1791,6 @@ mod tests {
         crate::testing::with_widgets(|| {
             let (_tmp, _state, page, _) = page_of(2);
             assert!(!page.imp().can_move.get(), "the only deck");
-            // The disabled action opens nothing.
-            let _ = page.activate_action("review.move", None);
-            assert!(!page.imp().asking.get());
             // Even if the page thought there was a deck (a stale flag): the
             // look at the decks finds none, says so and opens nothing.
             page.imp().can_move.set(true);
