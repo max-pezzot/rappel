@@ -212,6 +212,22 @@ template $RappelDeckPage: Adw.NavigationPage {
             "suggested-action",
           ]
         }
+
+        // The whole line of what there is to study, which the header's
+        // subtitle shortens on a phone (set in pages/deck_page.rs). Wraps,
+        // so French fits beside the pill without a tooltip to hover.
+        [end]
+        Gtk.Label bar_counts {
+          wrap: true;
+          justify: right;
+          xalign: 1;
+          max-width-chars: 14;
+
+          styles [
+            "caption",
+            "dimmed",
+          ]
+        }
       }
 
       // The actions on the chosen cards, as on All Cards. The Study bar

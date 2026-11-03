@@ -122,9 +122,13 @@ impl SelectionHeader {
 
     /// Shows the title that fits the header's width.
     fn show_title(&self) {
-        use gtk::prelude::WidgetExt;
+        use gtk::prelude::{AccessibleExtManual, Cast, WidgetExt};
         let imp = self.imp();
         let full = imp.full_title.borrow();
+        // A screen reader hears the whole title however it is drawn.
+        imp.title
+            .upcast_ref::<gtk::Widget>()
+            .update_property(&[gtk::accessible::Property::Label(&full)]);
         if imp.tight.get() {
             imp.title.set_title(&imp.tight_title.borrow());
             imp.title.set_tooltip_text(Some(&full));
@@ -152,6 +156,8 @@ impl SelectionHeader {
 
 #[cfg(test)]
 mod tests {
+    use gtk::prelude::WidgetExt;
+
     use super::*;
 
     #[test]
@@ -166,6 +172,19 @@ mod tests {
             assert_eq!(content.label(), "Select _All");
             header.set_titles("2 Selected", "2");
             assert_eq!(header.title(), "2 Selected");
+            // Narrow: the count, the whole title as its tooltip.
+            header.set_tight(true);
+            assert_eq!(header.title(), "2");
+            assert_eq!(
+                header.imp().title.tooltip_text().as_deref(),
+                Some("2 Selected")
+            );
+            // And a new title keeps the state.
+            header.set_titles("3 Selected", "3");
+            assert_eq!(header.title(), "3");
+            header.set_tight(false);
+            assert_eq!(header.title(), "3 Selected");
+            assert_eq!(header.imp().title.tooltip_text(), None);
         });
     }
 }

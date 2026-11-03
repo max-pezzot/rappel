@@ -40,7 +40,8 @@ use text::{
 
 /// Asks where to save, then exports there on a worker thread. If the media
 /// would make the file larger than an import reads, asks first (before
-/// anything is chosen or written) whether to export without them.
+/// anything is chosen or written) whether to export without them; if the
+/// file comes out too large all the same, asks then (ADR 0071).
 pub async fn export(window: &RappelWindow, state: &AppState) {
     let include_media = match media_choice(window, state).await {
         MediaChoice::With => true,
@@ -55,24 +56,51 @@ pub async fn export(window: &RappelWindow, state: &AppState) {
     };
 
     let data_dir = state.data_dir().to_path_buf();
-    let worker_path = path.clone();
-    let result = worker::run(window, move || {
-        AppState::export_on_worker(&data_dir, &worker_path, include_media)
-    })
-    .await;
+    let mut include_media = include_media;
+    loop {
+        let (dir, target) = (data_dir.clone(), path.clone());
+        let result = worker::run(window, move || {
+            AppState::export_on_worker(&dir, &target, include_media)
+        })
+        .await;
+        // The estimate could not know the text: the file came out too
+        // large. Not a failure to report: the question, then once more.
+        if let Ok(Err(err)) = &result
+            && offers_export_without_media(err, include_media)
+        {
+            match ask_without_media(window, state, err).await {
+                MediaChoice::Without => {
+                    include_media = false;
+                    continue;
+                }
+                _ => return,
+            }
+        }
+        report(window, &path, include_media, result);
+        return;
+    }
+}
+
+/// Says how the export went.
+fn report(
+    window: &RappelWindow,
+    path: &std::path::Path,
+    include_media: bool,
+    result: Result<rappel_core::Result<rappel_core::interchange::ExportSummary>, worker::Panicked>,
+) {
     match result {
         Ok(Ok(summary)) => {
             // Lost media files are worth reading, so that toast stays; so
             // does the one that says the file has none on purpose.
             let toast = if include_media {
-                let text = exported_text(&path, summary.missing_media);
+                let text = exported_text(path, summary.missing_media);
                 if summary.missing_media > 0 {
                     persistent_toast(&text)
                 } else {
                     info_toast(&text)
                 }
             } else {
-                persistent_toast(&exported_without_media_text(&path, summary.media_left_out))
+                persistent_toast(&exported_without_media_text(path, summary.media_left_out))
             };
             window.add_toast(toast);
         }
@@ -92,6 +120,12 @@ pub async fn export(window: &RappelWindow, state: &AppState) {
             &gettext("The export stopped unexpectedly"),
         ),
     }
+}
+
+/// Whether an export that failed with `err` is offered again without media:
+/// it came out larger than an import reads, and it had media to leave out.
+fn offers_export_without_media(err: &rappel_core::Error, include_media: bool) -> bool {
+    include_media && matches!(err, rappel_core::Error::ExportTooLarge { .. })
 }
 
 /// What the export does about the media.
@@ -130,10 +164,37 @@ async fn media_choice(window: &RappelWindow, state: &AppState) -> MediaChoice {
     if !media_too_large_for_import(totals) {
         return MediaChoice::With;
     }
+    ask(window, totals.bytes).await
+}
+
+/// The question after an export came out too large (`err`): the media's
+/// own size if it can be added up, else the file's.
+async fn ask_without_media(
+    window: &RappelWindow,
+    state: &AppState,
+    err: &rappel_core::Error,
+) -> MediaChoice {
+    let bytes = match (state.media_totals(), err) {
+        (Ok(totals), _) => totals.bytes,
+        (Err(_), rappel_core::Error::ExportTooLarge { bytes, .. }) => *bytes,
+        (Err(_), _) => 0,
+    };
+    ask(window, bytes).await
+}
+
+/// "Export Without Media?" over `window`, naming `media_bytes`. If the
+/// dialog cannot be built, says so in a toast and does not export.
+async fn ask(window: &RappelWindow, media_bytes: u64) -> MediaChoice {
     let Ok(dialog) = dialog::EXPORT_WITHOUT_MEDIA.load() else {
+        // `Alert::load` logged which object is missing.
+        show_error(
+            window,
+            "an export",
+            &gettext("The export could not start: its question could not be shown"),
+        );
         return MediaChoice::Cancel;
     };
-    dialog.set_body(&without_media_body(totals.bytes));
+    dialog.set_body(&without_media_body(media_bytes));
     media_choice_of(&dialog.choose_future(Some(window)).await)
 }
 
@@ -360,6 +421,18 @@ mod tests {
     /// Enter and Escape are Cancel (the default and the close response),
     /// the other response is the button, and nothing is written before
     /// the answer.
+    /// A file that came out too large is offered again without media, only
+    /// when it had media and only for that error.
+    #[test]
+    fn only_a_too_large_export_with_media_is_offered_again_without() {
+        use rappel_core::Error;
+        let large = Error::ExportTooLarge { bytes: 5, limit: 4 };
+        assert!(offers_export_without_media(&large, true));
+        // Already without media: nothing more to leave out.
+        assert!(!offers_export_without_media(&large, false));
+        assert!(!offers_export_without_media(&Error::ImportCancelled, true));
+    }
+
     #[test]
     fn the_question_defaults_to_cancel_and_its_button_names_what_it_does() {
         crate::testing::with_widgets(|| {

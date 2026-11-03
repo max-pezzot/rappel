@@ -38,8 +38,14 @@ pub fn selection_title(n: usize) -> String {
 
 /// The header's title where "3 Selected" would be cut: the bare count
 /// ("3"; the full title is the tooltip and the screen reader's label).
+/// Before the first card is chosen it stays "Select Cards", which says what
+/// the mode is for and is short enough.
 pub fn selection_title_tight(n: usize) -> String {
-    group_digits(n)
+    if n == 0 {
+        selection_title(0)
+    } else {
+        group_digits(n)
+    }
 }
 
 /// The window width in pixels under which the header shows [`selection_title_tight`]:
@@ -351,7 +357,8 @@ mod tests {
         assert_eq!(selection_title(0), "Select Cards");
         assert_eq!(selection_title(3), "3 Selected");
         assert_eq!(selection_title(1_200), "1,200 Selected");
-        assert_eq!(selection_title_tight(0), "0");
+        assert_eq!(selection_title_tight(0), "Select Cards");
+        assert_eq!(selection_title_tight(3), "3");
         assert_eq!(selection_title_tight(1_200), "1,200");
     }
 

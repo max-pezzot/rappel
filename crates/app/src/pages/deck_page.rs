@@ -78,6 +78,8 @@ mod imp {
         #[template_child]
         pub bar_select_button: TemplateChild<gtk::Button>,
         #[template_child]
+        pub bar_counts: TemplateChild<gtk::Label>,
+        #[template_child]
         pub selection_header: TemplateChild<SelectionHeader>,
         #[template_child]
         pub selection_bar: TemplateChild<SelectionBar>,
@@ -527,7 +529,10 @@ impl DeckPage {
                 let compact = self.compact();
                 imp.window_title
                     .set_subtitle(&study_subtitle(&input, compact));
-                // The full line, where the header shortened it.
+                // The full line, where the header shortened it: in the
+                // Study bar, which is there only on a phone, and as the
+                // title's tooltip.
+                imp.bar_counts.set_label(&study_subtitle(&input, false));
                 imp.window_title
                     .set_tooltip_text(compact.then(|| study_subtitle(&input, false)).as_deref());
                 self.action_set_enabled("deck.study", !input.is_empty());
@@ -551,6 +556,7 @@ impl DeckPage {
             }
             Err(err) => {
                 imp.window_title.set_subtitle("");
+                imp.bar_counts.set_label("");
                 self.action_set_enabled("deck.study", false);
                 self.action_set_enabled("deck.practice", false);
                 // Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
@@ -2104,6 +2110,46 @@ mod tests {
             "key-pressed",
             &[&gtk::gdk::Key::a, &0u32, &ModifierType::CONTROL_MASK],
         )
+    }
+
+    /// At 360 × 640 Select Cards is in the bottom bar, not the header
+    /// (`select_slot` hides), and leaving selection mode from Cancel gives
+    /// the keyboard to that bar button, not to the hidden one (ui/selection.rs).
+    #[test]
+    fn on_a_phone_cancel_gives_the_focus_to_the_select_button_of_the_bar() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, _state, page, _ids) = page_of(3);
+            let window = gtk::Window::builder()
+                .default_width(360)
+                .default_height(640)
+                .child(&page)
+                .build();
+            window.present();
+            let imp = page.imp();
+            assert!(
+                crate::testing::settle_until(
+                    || page.compact() && imp.study_bar.is_revealed(),
+                    Duration::from_secs(5)
+                ),
+                "the phone layout applies"
+            );
+            assert!(!imp.select_button.is_visible(), "not in the header");
+            assert!(imp.bar_select_button.is_visible());
+            imp.bar_select_button.emit_clicked();
+            assert!(page.selecting());
+            let cancel = imp.selection_header.cancel_button();
+            gtk::prelude::GtkWindowExt::set_focus(&window, Some(&cancel));
+            cancel.emit_clicked();
+            assert!(!page.selecting());
+            assert!(
+                crate::testing::settle_until(
+                    || imp.bar_select_button.has_focus(),
+                    Duration::from_secs(5)
+                ),
+                "the focus is on the bar's Select button"
+            );
+            window.destroy();
+        });
     }
 
     #[test]

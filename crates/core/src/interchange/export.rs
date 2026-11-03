@@ -12,7 +12,7 @@ use super::format::{
     CardRecord, CardTagRecord, DeckRecord, Document, EventRecord, FORMAT_VERSION, MediaRecord,
     SettingsRecord, TagRecord,
 };
-use super::{ExportOptions, ExportSummary, MAX_ARCHIVE_BYTES};
+use super::{ExportOptions, ExportSummary, Limits, MAX_ARCHIVE_BYTES};
 use crate::error::{Error, Result};
 use crate::media::{CopyFailure, MediaKind, MediaRef, copy_capped, parse_hex};
 use crate::storage::{Store, stored_settings};
@@ -79,9 +79,10 @@ impl Store {
         })
     }
 
-    /// The media files the database lists and their sizes together, in
-    /// bytes: what an export with media would hold, for
-    /// [`media_too_large_for_import`]. One cheap query.
+    /// What an export would come to, for [`media_too_large_for_import`]:
+    /// the media files the database lists and their sizes together, and an
+    /// upper bound of the text of `cards.json`. Four cheap queries, no file
+    /// is touched.
     ///
     /// # Errors
     /// SQLite errors.
@@ -91,9 +92,31 @@ impl Store {
             [],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )?;
+        // The card text counts twice (JSON escapes: a quote, a newline, a
+        // non-ASCII letter written as \u escapes), every row 512 bytes
+        // (its keys and indentation in the pretty-printed file).
+        let (card_text, rows): (i64, i64) = self.conn.query_row(
+            "SELECT
+                (SELECT COALESCE(SUM(LENGTH(CAST(front_md AS BLOB))
+                                   + LENGTH(CAST(back_md AS BLOB))), 0) FROM cards),
+                (SELECT COUNT(*) FROM cards) + (SELECT COUNT(*) FROM decks)
+                + (SELECT COUNT(*) FROM tags) + (SELECT COUNT(*) FROM card_tags)
+                + (SELECT COUNT(*) FROM review_events)",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        let text = u64::try_from(card_text)
+            .unwrap_or(0)
+            .saturating_mul(2)
+            .saturating_add(
+                u64::try_from(rows)
+                    .unwrap_or(0)
+                    .saturating_mul(ROW_ESTIMATE),
+            );
         Ok(MediaTotals {
             bytes: u64::try_from(bytes).unwrap_or(0),
             files: usize::try_from(files).unwrap_or(0),
+            text_bytes: text,
         })
     }
 
@@ -397,14 +420,20 @@ fn partial_path(path: &Path) -> PathBuf {
     PathBuf::from(name)
 }
 
-/// What the media rows of the database add up to.
+/// What an export would come to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MediaTotals {
-    /// Their sizes together, in bytes (the `bytes` column).
+    /// The media files' sizes together, in bytes (the `bytes` column).
     pub bytes: u64,
-    /// How many files.
+    /// How many media files.
     pub files: usize,
+    /// An upper bound, in bytes, of `cards.json` without its media list
+    /// (see [`Store::media_totals`]).
+    pub text_bytes: u64,
 }
+
+/// What a row of `cards.json` is taken to weigh besides its card text.
+const ROW_ESTIMATE: u64 = 512;
 
 /// The most a zip entry takes besides its data in an archive Rappel writes:
 /// the local header (30 bytes) and the central record (46) with the name
@@ -417,18 +446,33 @@ const MEDIA_ENTRY_OVERHEAD: u64 = 30 + 46 + 2 * 75;
 /// (30 + 46 + 2 × 10), and the end record (22).
 const ARCHIVE_OVERHEAD: u64 = (30 + 46 + 12) + (30 + 46 + 20) + 22;
 
-/// Whether an export of `media` would be larger than an import reads
-/// ([`MAX_ARCHIVE_BYTES`]) from its media alone, with their entries' headers
-/// and the archive's fixed ones: its `cards.json` is not counted, so a
-/// `false` is not a promise (the export checks the file it wrote, and fails
-/// with [`Error::ExportTooLarge`]); a `true` is always right. The app asks
-/// before exporting and offers to leave the media out (ADR 0071).
+/// How big the archive of an export with media is taken to be: the media,
+/// their entries' headers, the archive's fixed ones, and the estimate of
+/// `cards.json`.
 #[must_use]
-pub fn media_too_large_for_import(media: MediaTotals) -> bool {
+pub fn export_size_estimate(media: MediaTotals) -> u64 {
     let files = u64::try_from(media.files).unwrap_or(u64::MAX);
-    let total = media
+    media
         .bytes
         .saturating_add(files.saturating_mul(MEDIA_ENTRY_OVERHEAD))
-        .saturating_add(ARCHIVE_OVERHEAD);
-    total > MAX_ARCHIVE_BYTES
+        .saturating_add(ARCHIVE_OVERHEAD)
+        .saturating_add(media.text_bytes)
+}
+
+/// Whether an import would refuse an export with these media, for what
+/// leaving the media out can mend: [`export_size_estimate`] past
+/// [`MAX_ARCHIVE_BYTES`], or more entries than an import reads (the media
+/// files, `cards.json` and `media/`). The estimate of the text is an upper
+/// bound for ordinary text but not a proof (a file made only of characters
+/// that JSON writes as six-byte escapes could be bigger), so a `false` is
+/// not a promise: the export checks the file it wrote and fails with
+/// [`Error::ExportTooLarge`], and the app then asks the same question. A
+/// `cards.json` over 256 MiB is not mended by leaving the media out and is
+/// not checked here. The app asks before exporting (ADR 0071).
+#[must_use]
+pub fn media_too_large_for_import(media: MediaTotals) -> bool {
+    let entries = u64::try_from(media.files)
+        .unwrap_or(u64::MAX)
+        .saturating_add(2);
+    export_size_estimate(media) > MAX_ARCHIVE_BYTES || entries > Limits::DEFAULT.entries
 }

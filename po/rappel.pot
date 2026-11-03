@@ -2457,6 +2457,10 @@ msgid "The export stopped unexpectedly"
 msgstr ""
 
 #: crates/app/src/transfer/mod.rs
+msgid "The export could not start: its question could not be shown"
+msgstr ""
+
+#: crates/app/src/transfer/mod.rs
 msgid "Rappel Exports"
 msgstr ""
 

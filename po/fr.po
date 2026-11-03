@@ -2459,6 +2459,10 @@ msgid "The export stopped unexpectedly"
 msgstr "Export interrompu"
 
 #: crates/app/src/transfer/mod.rs
+msgid "The export could not start: its question could not be shown"
+msgstr "L’export n’a pas pu démarrer : sa question n’a pas pu être affichée"
+
+#: crates/app/src/transfer/mod.rs
 msgid "Rappel Exports"
 msgstr "Exports Rappel"
 
@@ -2503,8 +2507,8 @@ msgstr[1] "Fichiers omis. Exporté dans « {name} », sans {count} fichiers mu
 #: crates/app/src/transfer/text.rs
 msgid "Media left out. Exported to “{name}” without its {count} media file"
 msgid_plural "Media left out. Exported to “{name}” without its {count} media files"
-msgstr[0] "Médias exclus. Exporté dans « {name} » sans ses {count} fichier média"
-msgstr[1] "Médias exclus. Exporté dans « {name} » sans ses {count} fichiers médias"
+msgstr[0] "Médias exclus. Exporté dans « {name} » sans {count} fichier média"
+msgstr[1] "Médias exclus. Exporté dans « {name} » sans {count} fichiers médias"
 
 #. Translators: the body of a question. {size} is a size such as "2.4 GiB". An import reads at most 2 GiB from one file.
 #: crates/app/src/transfer/text.rs

@@ -755,7 +755,11 @@ fn the_media_totals_are_the_sizes_the_rows_record() {
     assert_eq!(totals.bytes, size(&png) + size(&wav));
     assert_eq!(
         Env::new().store.media_totals().unwrap(),
-        MediaTotals { bytes: 0, files: 0 }
+        MediaTotals {
+            bytes: 0,
+            files: 0,
+            text_bytes: 0
+        }
     );
 }
 
@@ -765,7 +769,11 @@ fn the_media_totals_are_the_sizes_the_rows_record() {
 fn media_too_large_for_import_is_decided_at_the_exact_boundary() {
     let limit = MAX_ARCHIVE_BYTES;
     assert_eq!(limit, 2 << 30);
-    let totals = |bytes, files| MediaTotals { bytes, files };
+    let totals = |bytes, files| MediaTotals {
+        bytes,
+        files,
+        text_bytes: 0,
+    };
     // No media: never.
     assert!(!media_too_large_for_import(totals(0, 0)));
     // No file entries: only the fixed bytes of the archive count (206).
@@ -777,21 +785,36 @@ fn media_too_large_for_import_is_decided_at_the_exact_boundary() {
     let room = limit - 206 - 3 * per_file;
     assert!(!media_too_large_for_import(totals(room, 3)));
     assert!(media_too_large_for_import(totals(room + 1, 3)));
-    // The archive would be the limit and no more: it still imports (the
-    // import refuses only a file larger than the limit).
+    // The text of `cards.json` counts too, and the number of entries.
+    let text = |text_bytes| MediaTotals {
+        bytes: 0,
+        files: 0,
+        text_bytes,
+    };
+    assert!(!media_too_large_for_import(text(fixed)));
+    assert!(media_too_large_for_import(text(fixed + 1)));
+    let files = |n| MediaTotals {
+        bytes: 0,
+        files: n,
+        text_bytes: 0,
+    };
+    // An import reads 100,000 entries: the files, `cards.json` and `media/`.
+    assert_eq!(Limits::DEFAULT.entries, 100_000);
+    assert!(!media_too_large_for_import(files(99_998)));
+    assert!(media_too_large_for_import(files(99_999)));
     // Numbers that overflow are too large, not wrapped.
     assert!(media_too_large_for_import(totals(u64::MAX, usize::MAX)));
-    // A real export's headers are no more than the constants say: the
-    // sample's own file is the same size as its parts.
+    // The estimate is no less than a real export (media's own sizes, the
+    // headers, and the text of `cards.json` bounded above).
     let (env, _, _) = media_env();
     let (bytes, _) = env.store.export_bytes_at(T_EXPORT).unwrap();
-    let json = read_cards_json(&bytes, &Limits::DEFAULT).unwrap().len() as u64;
     let totals = env.store.media_totals().unwrap();
-    let estimate = totals.bytes + totals.files as u64 * per_file + 206;
+    assert!(totals.text_bytes > 0);
     assert!(
-        bytes.len() as u64 <= estimate + json,
-        "{} > {estimate} + {json}",
-        bytes.len()
+        bytes.len() as u64 <= export_size_estimate(totals),
+        "{} > {}",
+        bytes.len(),
+        export_size_estimate(totals)
     );
 }
 

@@ -35,7 +35,7 @@ pub use anki::{
     ANKI_EXTENSIONS, AnkiFormat, AnkiPlan, AnkiProblem, AnkiReport, AnkiSummary, FileKind, Skip,
     Skipped, file_kind, remove_stale_anki_temps,
 };
-pub use export::{MediaTotals, media_too_large_for_import};
+pub use export::{MediaTotals, export_size_estimate, media_too_large_for_import};
 pub(crate) use format::FORMAT_VERSION;
 
 /// The largest `.rappel` file an import reads: 2 GiB (ADR 0053). An export

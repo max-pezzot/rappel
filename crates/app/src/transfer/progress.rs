@@ -35,14 +35,25 @@ fn toast(title: &str, cancel: &Arc<AtomicBool>) -> adw::Toast {
     toast
 }
 
-/// A controller in which Escape sets `cancel` and calls `then`.
-fn escape_cancels(cancel: &Arc<AtomicBool>, then: impl Fn() + 'static) -> gtk::ShortcutController {
+/// A controller in which Escape sets `cancel` and calls `then`, in the
+/// bubble phase: a widget with the focus that uses Escape (a search field,
+/// a dialog's own close) gets it first, and `blocked` (a dialog is open)
+/// leaves the key alone altogether, so a question asked meanwhile (Discard
+/// Changes?, Preferences) is never skipped by it.
+fn escape_cancels(
+    cancel: &Arc<AtomicBool>,
+    blocked: impl Fn() -> bool + 'static,
+    then: impl Fn() + 'static,
+) -> gtk::ShortcutController {
     let keys = gtk::ShortcutController::new();
-    keys.set_propagation_phase(gtk::PropagationPhase::Capture);
+    keys.set_propagation_phase(gtk::PropagationPhase::Bubble);
     let flag = Arc::clone(cancel);
     keys.add_shortcut(gtk::Shortcut::new(
         gtk::ShortcutTrigger::parse_string("Escape"),
         Some(gtk::CallbackAction::new(move |_, _| {
+            if blocked() {
+                return glib::Propagation::Proceed;
+            }
             flag.store(true, Ordering::Relaxed);
             then();
             glib::Propagation::Stop
@@ -62,15 +73,20 @@ impl Progress {
     /// Shows the toast `title` over `window` and makes Escape cancel as
     /// the button does. The toast's button is reachable by Tab, but a
     /// toast takes no focus of its own, so Escape works wherever the
-    /// focus is: the controller is in the capture phase of the window
-    /// (`GtkShortcutController`, `GtkPropagationPhase`), ahead of the
-    /// widget that has the focus, and the job has no dialog of its own that
-    /// would want the key.
+    /// focus is, unless a widget that uses Escape has it or a dialog is
+    /// open: the controller is in the bubble phase of the window, after the
+    /// widget that has the focus (`GtkPropagationPhase`), and does nothing
+    /// while `AdwWindow:visible-dialog` is set.
     pub(super) fn start(window: &RappelWindow, title: &str, cancel: &Arc<AtomicBool>) -> Self {
         let toast = toast(title, cancel);
         window.add_toast(toast.clone());
         let shown = toast.clone();
-        let keys = escape_cancels(cancel, move || shown.dismiss());
+        let weak = window.downgrade();
+        let keys = escape_cancels(
+            cancel,
+            move || weak.upgrade().is_some_and(|w| w.visible_dialog().is_some()),
+            move || shown.dismiss(),
+        );
         window.add_controller(keys.clone());
         Self {
             toast,
@@ -96,13 +112,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn escape_cancels_in_the_capture_phase_and_the_button_cancels_too() {
+    fn escape_cancels_in_the_bubble_phase_and_the_button_cancels_too() {
         crate::testing::with_widgets(|| {
             let cancel = Arc::new(AtomicBool::new(false));
             let called = Rc::new(Cell::new(false));
             let seen = Rc::clone(&called);
-            let keys = escape_cancels(&cancel, move || seen.set(true));
-            assert_eq!(keys.propagation_phase(), gtk::PropagationPhase::Capture);
+            let keys = escape_cancels(&cancel, || false, move || seen.set(true));
+            assert_eq!(keys.propagation_phase(), gtk::PropagationPhase::Bubble);
             let shortcut = keys
                 .item(0)
                 .and_downcast::<gtk::Shortcut>()
@@ -123,6 +139,46 @@ mod tests {
             assert_eq!(toast.button_label().as_deref(), Some("_Cancel"));
             toast.emit_by_name::<()>("button-clicked", &[]);
             assert!(cancel.load(Ordering::Relaxed));
+        });
+    }
+
+    /// A dialog open while a job runs keeps its Escape: the key does not
+    /// cancel the job, and does once the dialog is gone.
+    #[test]
+    fn escape_leaves_a_dialog_alone() {
+        crate::testing::with_widgets(|| {
+            let window = adw::Window::new();
+            window.set_default_size(360, 640);
+            window.present();
+            crate::testing::settle_until(|| window.is_mapped(), std::time::Duration::from_secs(5));
+            let cancel = Arc::new(AtomicBool::new(false));
+            let weak = window.downgrade();
+            let keys = escape_cancels(
+                &cancel,
+                move || weak.upgrade().is_some_and(|w| w.visible_dialog().is_some()),
+                || {},
+            );
+            let action = keys
+                .item(0)
+                .and_downcast::<gtk::Shortcut>()
+                .and_then(|s| s.action())
+                .expect("the Escape shortcut");
+            let dialog = adw::AlertDialog::new(Some("Discard?"), None);
+            dialog.present(Some(&window));
+            assert!(crate::testing::settle_until(
+                || window.visible_dialog().is_some(),
+                std::time::Duration::from_secs(5)
+            ));
+            assert!(!action.activate(gtk::ShortcutActionFlags::empty(), &window, None));
+            assert!(!cancel.load(Ordering::Relaxed), "the dialog keeps Escape");
+            dialog.force_close();
+            assert!(crate::testing::settle_until(
+                || window.visible_dialog().is_none(),
+                std::time::Duration::from_secs(5)
+            ));
+            assert!(action.activate(gtk::ShortcutActionFlags::empty(), &window, None));
+            assert!(cancel.load(Ordering::Relaxed));
+            window.destroy();
         });
     }
 }
