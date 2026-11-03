@@ -40,7 +40,7 @@ msgstr ""
 #: crates/app/data/retention_dialog.blp
 #: crates/app/data/selection_header.blp
 #: crates/app/data/start_fresh_dialog.blp
-#: crates/app/src/transfer/anki.rs
+#: crates/app/src/transfer/progress.rs
 msgid "_Cancel"
 msgstr ""
 
@@ -2504,6 +2504,11 @@ msgstr[1] ""
 
 #: crates/app/src/transfer/text.rs
 msgid "Early test version. This file was made by an early test version of Rappel and cannot be imported"
+msgstr ""
+
+#. Translators: a toast with a Cancel button while an export file is checked before importing it; keep it short (it must fit a phone's width).
+#: crates/app/src/transfer/text.rs
+msgid "Checking the file…"
 msgstr ""
 
 #: crates/app/src/transfer/text.rs

@@ -92,6 +92,14 @@ pub(super) fn refused_text(problem: &ImportProblem) -> String {
     }
 }
 
+/// The title of the toast, with Cancel, while a `.rappel` file is checked.
+pub(super) fn checking_text() -> String {
+    // Translators: a toast with a Cancel button while an export file is
+    // checked before importing it; keep it short (it must fit a phone's
+    // width).
+    gettext("Checking the file…")
+}
+
 /// The toast when checking a file failed for a reason other than the
 /// file being refused ([`refused_text`]).
 pub(super) fn check_failed_text(err: &Error) -> String {
@@ -457,6 +465,14 @@ mod tests {
             assert_ne!(title, fallback_title(), "{text}");
             assert!(title.chars().count() <= TOAST_FITS_WITH_BUTTON, "{title}");
         }
+    }
+
+    #[test]
+    fn the_checking_toast_fits_beside_its_button() {
+        use crate::ui::toast::TOAST_FITS_WITH_BUTTON;
+        let text = checking_text();
+        assert_eq!(text, "Checking the file…");
+        assert!(text.chars().count() <= TOAST_FITS_WITH_BUTTON, "{text}");
     }
 
     #[test]

@@ -9,10 +9,13 @@
 mod anki;
 mod anki_text;
 mod names;
+mod progress;
 mod text;
 
 use crate::i18n::{fill, gettext};
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use adw::prelude::*;
 use gtk::{gio, glib};
@@ -25,10 +28,12 @@ use crate::state::AppState;
 use crate::ui::toast::{info_toast, persistent_toast, show_error};
 use crate::ui::{dialog, worker};
 use crate::window::RappelWindow;
+use anki_text::cancelled_text;
 use names::Names;
+use progress::Progress;
 use text::{
-    check_failed_text, conflicts_text, export_file_name, exported_text, import_failed_text,
-    imported_text, plan_view, refused_text,
+    check_failed_text, checking_text, conflicts_text, export_file_name, exported_text,
+    import_failed_text, imported_text, plan_view, refused_text,
 };
 
 /// Asks where to save, then exports there on a worker thread.
@@ -92,12 +97,22 @@ pub async fn import(window: &RappelWindow, state: &AppState) {
         return;
     }
     let worker_dir = data_dir.clone();
+    // Reading a large file takes a while: a toast with Cancel (and Escape)
+    // stays until the plan is made, as for an Anki package (ADR 0071).
+    let cancel = Arc::new(AtomicBool::new(false));
+    let progress = Progress::start(window, &checking_text(), &cancel);
+    let worker_cancel = Arc::clone(&cancel);
     let result = worker::run(window, move || {
-        AppState::plan_import_on_worker(&worker_dir, &path)
+        AppState::plan_import_on_worker(&worker_dir, &path, &worker_cancel)
     })
     .await;
+    progress.finish();
     let plan = match result {
         Ok(Ok(plan)) => plan,
+        Ok(Err(Error::ImportCancelled)) => {
+            window.add_toast(info_toast(&cancelled_text()));
+            return;
+        }
         Ok(Err(Error::ImportRefused(problem))) => {
             show_error(window, "an import check", &refused_text(&problem));
             return;

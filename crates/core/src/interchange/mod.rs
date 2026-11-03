@@ -37,6 +37,11 @@ pub use anki::{
 };
 pub(crate) use format::FORMAT_VERSION;
 
+/// The largest `.rappel` file an import reads: 2 GiB (ADR 0053). An export
+/// whose media would make it larger is offered without them (ADR 0071), so
+/// the export and the import share this number.
+pub const MAX_ARCHIVE_BYTES: u64 = 2 << 30;
+
 /// File name extension of an export, without the dot.
 pub const FILE_EXTENSION: &str = "rappel";
 
@@ -511,7 +516,7 @@ pub(crate) struct Limits {
 impl Limits {
     /// The limits used by [`Store::plan_import`](crate::storage::Store::plan_import).
     pub(crate) const DEFAULT: Self = Self {
-        archive: 2 << 30,
+        archive: MAX_ARCHIVE_BYTES,
         entries: 100_000,
         // 100,000 central records with media names (about 122 bytes each)
         // fit with room to spare.

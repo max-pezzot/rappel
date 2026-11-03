@@ -618,6 +618,58 @@ fn a_file_changed_while_it_is_planned_is_refused() {
     }
 }
 
+/// A plan stopped by its cancel flag, at any of its reads (a file with its
+/// keys in another order is read in steps, which the hook counts) or
+/// before the first, is `ImportCancelled`, whatever the reading was in the
+/// middle of, and writes nothing (ADR 0071).
+#[test]
+fn a_plan_is_cancelled_at_any_read_and_writes_nothing() {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    use crate::interchange::import::BEFORE_READ;
+    let (source, _, _) = sample_env();
+    let doc = json_of(&source.export());
+    let text = text_in_order(&doc, &orders()[1]);
+    let bytes = stored(&text);
+    for at in 0..=11 {
+        let env = Env::new();
+        let path = env.tmp.path().join("file.rappel");
+        fs::write(&path, &bytes).unwrap();
+        let cancel = std::sync::Arc::new(AtomicBool::new(at == 0));
+        let (flag, reads) = (
+            std::sync::Arc::clone(&cancel),
+            std::sync::Arc::new(AtomicUsize::new(0)),
+        );
+        let counted = std::sync::Arc::clone(&reads);
+        let hook = crate::test_support::set_hook(&BEFORE_READ, move || {
+            if counted.fetch_add(1, Ordering::Relaxed) + 1 == at {
+                flag.store(true, Ordering::Relaxed);
+            }
+        });
+        let result = env.store.plan_import_cancellable(&path, &cancel);
+        drop(hook);
+        // Promptly: no read began after the flag was set.
+        assert_eq!(reads.load(Ordering::Relaxed), at, "reads after the cancel");
+        assert!(
+            matches!(result, Err(Error::ImportCancelled)),
+            "cancelled at read {at}: {:?}",
+            result.map(|p| p.summary().clone())
+        );
+        assert_eq!(env.store.decks().unwrap(), []);
+        assert_eq!(env.backups(), 0);
+    }
+    // A flag that is never set changes nothing: the same plan as without.
+    let env = Env::new();
+    let path = env.tmp.path().join("file.rappel");
+    fs::write(&path, &bytes).unwrap();
+    let plain = env.store.plan_import(&path).unwrap();
+    let flagged = env
+        .store
+        .plan_import_cancellable(&path, &AtomicBool::new(false))
+        .unwrap();
+    assert_eq!(plain.summary(), flagged.summary());
+}
+
 /// The same file applies, and a file moved away is an IO error with
 /// nothing written.
 #[test]

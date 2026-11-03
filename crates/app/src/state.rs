@@ -168,10 +168,14 @@ impl AppState {
     }
 
     /// Checks the `.rappel` file `path` against the database in `data_dir`
-    /// (see [`Store::plan_import`]). Blocking; on its own connection like
-    /// [`Self::export_on_worker`].
-    pub fn plan_import_on_worker(data_dir: &Path, path: &Path) -> rappel_core::Result<ImportPlan> {
-        Store::open_concurrent(data_dir)?.plan_import(path)
+    /// (see [`Store::plan_import_cancellable`]); stops when `cancel` is
+    /// set. Blocking; on its own connection like [`Self::export_on_worker`].
+    pub fn plan_import_on_worker(
+        data_dir: &Path,
+        path: &Path,
+        cancel: &AtomicBool,
+    ) -> rappel_core::Result<ImportPlan> {
+        Store::open_concurrent(data_dir)?.plan_import_cancellable(path, cancel)
     }
 
     /// Whether `path` is a Rappel export or an Anki package, by its name,

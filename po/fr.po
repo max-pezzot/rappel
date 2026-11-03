@@ -42,7 +42,7 @@ msgstr "_Restaurer"
 #: crates/app/data/retention_dialog.blp
 #: crates/app/data/selection_header.blp
 #: crates/app/data/start_fresh_dialog.blp
-#: crates/app/src/transfer/anki.rs
+#: crates/app/src/transfer/progress.rs
 msgid "_Cancel"
 msgstr "_Annuler"
 
@@ -2507,6 +2507,11 @@ msgstr[1] "Fichiers omis. Exporté dans « {name} », sans {count} fichiers mu
 #: crates/app/src/transfer/text.rs
 msgid "Early test version. This file was made by an early test version of Rappel and cannot be imported"
 msgstr "Ancienne version de test. Ce fichier a été créé par une ancienne version de test de Rappel et ne peut pas être importé"
+
+#. Translators: a toast with a Cancel button while an export file is checked before importing it; keep it short (it must fit a phone's width).
+#: crates/app/src/transfer/text.rs
+msgid "Checking the file…"
+msgstr "Vérification du fichier…"
 
 #: crates/app/src/transfer/text.rs
 msgid "File changed. It changed while it was being checked; import it again."
