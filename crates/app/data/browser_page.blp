@@ -67,7 +67,11 @@ template $RappelBrowserPage: Adw.NavigationPage {
       // Deck, tag and state, side by side and as wide as the list under
       // them; on a phone they share the width and their texts end in "…"
       // (ui::dropdown::shrinkable), so they never take more than one line.
-      // Hidden while there is no card at all (pages/browser_page.rs).
+      // While a deck is archived a fourth drop-down shows them or not
+      // (ADR 0068): beside the others where there is room, each as wide as
+      // its text, on a line of its own on a phone (pages/browser_page.rs,
+      // `text::filter_layout`, moves it). Hidden while there is no card at
+      // all (pages/browser_page.rs).
       [top]
       Adw.Clamp filter_bar {
         maximum-size: 600;
@@ -79,30 +83,44 @@ template $RappelBrowserPage: Adw.NavigationPage {
           margin-start: 12;
           margin-end: 12;
 
-          Gtk.Box {
-            spacing: 6;
-            homogeneous: true;
+          Gtk.Grid filter_grid {
+            column-spacing: 6;
+            row-spacing: 6;
+            column-homogeneous: true;
             hexpand: true;
 
             Gtk.DropDown deck_filter {
+              hexpand: true;
               enable-search: true;
               tooltip-text: _("Deck");
 
               accessibility {
                 label: _("Deck");
               }
+
+              layout {
+                column: 0;
+                row: 0;
+              }
             }
 
             Gtk.DropDown tag_filter {
+              hexpand: true;
               enable-search: true;
               tooltip-text: _("Tag");
 
               accessibility {
                 label: _("Tag");
               }
+
+              layout {
+                column: 1;
+                row: 0;
+              }
             }
 
             Gtk.DropDown state_filter {
+              hexpand: true;
               tooltip-text: _("State");
 
               model: Gtk.StringList {
@@ -117,6 +135,28 @@ template $RappelBrowserPage: Adw.NavigationPage {
 
               accessibility {
                 label: _("State");
+              }
+
+              layout {
+                column: 2;
+                row: 0;
+              }
+            }
+
+            // Its two entries ("Archived Hidden", "Archived Shown") are set
+            // in pages/browser_page.rs.
+            Gtk.DropDown archived_filter {
+              hexpand: true;
+              visible: false;
+              tooltip-text: _("Archived Decks");
+
+              accessibility {
+                label: _("Archived Decks");
+              }
+
+              layout {
+                column: 3;
+                row: 0;
               }
             }
           }

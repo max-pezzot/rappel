@@ -1,6 +1,8 @@
 //! The root page: the list of decks, or an empty state, with create,
-//! rename, merge and delete (the last two undone from a toast). Activating
-//! a deck opens its page. Layout in `data/decks_page.blp`.
+//! rename, merge, archive and delete (the last three undone from a toast).
+//! Activating a deck opens its page. While a deck is archived, an
+//! "Archived Decks" row at the end (or under the empty state) opens the
+//! Archived Decks page (ADR 0068). Layout in `data/decks_page.blp`.
 //!
 //! Each row says what its deck has to study, or when it next will
 //! ("Next review in 3 h", `widgets::deck_row::text`). Those texts age, so
@@ -22,7 +24,7 @@ use rappel_core::domain::Deck;
 use crate::dialogs::deck_name_dialog::{self, Purpose};
 use crate::dialogs::merge_deck;
 use crate::i18n::gettext;
-use crate::pages::{DeckPage, StatsPage};
+use crate::pages::{ArchivedPage, DeckPage, StatsPage, archived_text};
 use crate::state::AppState;
 use crate::ui::focus::index_after_removal;
 use crate::ui::nav;
@@ -61,6 +63,20 @@ mod imp {
         pub deck_list: TemplateChild<gtk::ListBox>,
         #[template_child]
         pub empty_new_button: TemplateChild<gtk::Button>,
+        #[template_child]
+        pub archived_list: TemplateChild<gtk::ListBox>,
+        #[template_child]
+        pub archived_row: TemplateChild<adw::ActionRow>,
+        #[template_child]
+        pub archived_count: TemplateChild<gtk::Label>,
+        #[template_child]
+        pub archived_empty_clamp: TemplateChild<adw::Clamp>,
+        #[template_child]
+        pub archived_empty_list: TemplateChild<gtk::ListBox>,
+        #[template_child]
+        pub archived_empty_row: TemplateChild<adw::ActionRow>,
+        #[template_child]
+        pub archived_empty_count: TemplateChild<gtk::Label>,
         /// Set once by the window when the database is open (ADR 0011).
         pub state: OnceCell<AppState>,
         /// A name dialog is open; a second one (double click, Ctrl+N) is
@@ -68,6 +84,9 @@ mod imp {
         pub asking: Cell<bool>,
         /// The deck whose page was opened last, focused when coming back.
         pub opened: RefCell<Option<String>>,
+        /// Coming back from a deck page whose deck left the list (it was
+        /// archived): the row now at this place is focused instead.
+        pub return_index: Cell<Option<usize>>,
         /// Reads the decks again when a row's text would change.
         pub refresh_timer: Debounce,
         /// The last "could not be read" toast of a reload.
@@ -90,6 +109,7 @@ mod imp {
                 page.rename(id.to_owned());
             });
             rows::install_id_action(klass, "decks.merge", super::DecksPage::merge);
+            rows::install_id_action(klass, "decks.archive", super::DecksPage::archive);
             rows::install_id_action(klass, "decks.delete", super::DecksPage::delete);
             klass.install_action("decks.statistics", None, |page, _, _| {
                 page.show_statistics();
@@ -125,10 +145,24 @@ mod imp {
             // here, not before the pop: AdwNavigationView focuses the page
             // when its transition ends, which is when `shown` is emitted
             // (CLAUDE.md, "Focus").
-            page.connect_shown(|page| match page.imp().opened.take() {
-                Some(id) => page.reload_or_toast(super::Focus::Deck(&id)),
-                None => page.reload_or_toast(super::Focus::Keep),
+            page.connect_shown(|page| {
+                let imp = page.imp();
+                let opened = imp.opened.take();
+                match (imp.return_index.take(), opened) {
+                    (Some(index), _) => page.reload_or_toast(super::Focus::Index(index)),
+                    (None, Some(id)) => page.reload_or_toast(super::Focus::Deck(&id)),
+                    (None, None) => page.reload_or_toast(super::Focus::Keep),
+                }
             });
+            // Both "Archived Decks" rows (under the list, and under the
+            // empty state) open the Archived Decks page.
+            for list in [&self.archived_list, &self.archived_empty_list] {
+                list.connect_row_activated(glib::clone!(
+                    #[weak]
+                    page,
+                    move |_, _| page.show_archived()
+                ));
+            }
             page.connect_realize(super::DecksPage::watch_window);
         }
     }
@@ -222,8 +256,8 @@ impl DecksPage {
     }
 
     /// At startup: pushes the page of the deck that was open when the
-    /// window last closed. A deck deleted since leaves the deck list showing
-    /// (`open` ignores `DeckNotFound`).
+    /// window last closed. A deck deleted or archived since leaves the deck
+    /// list showing (`open` ignores `DeckNotFound` and archived decks).
     pub fn reopen(&self, id: &str) {
         self.open(id);
     }
@@ -234,6 +268,8 @@ impl DecksPage {
             return;
         };
         let deck = match state.deck(id) {
+            // An archived deck has no page (ADR 0068): the deck list stays.
+            Ok(deck) if deck.is_archived() => return,
             Ok(deck) => deck,
             // Deleted meanwhile, e.g. from another window's toast: the
             // list is rebuilt by that change.
@@ -288,6 +324,89 @@ impl DecksPage {
         }
     }
 
+    /// Pushes the Archived Decks page.
+    fn show_archived(&self) {
+        let Some(state) = self.imp().state().cloned() else {
+            return;
+        };
+        let Some(view) = nav::navigation_view(self) else {
+            return;
+        };
+        if let Err(err) = nav::push_unless_on_top(&view, || ArchivedPage::new(state)) {
+            // Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
+            self.error_toast(&with_error(
+                &gettext("The decks could not be read: {error}"),
+                &err,
+            ));
+        }
+    }
+
+    /// Archives deck `id` at once: its row leaves the list (the focus on
+    /// the row now at its place, `index_after_removal`), and the toast's
+    /// Undo brings it back (ADR 0068).
+    fn archive(&self, id: &str) {
+        let Some(state) = self.imp().state().cloned() else {
+            return;
+        };
+        let Some(index) = self.rows().iter().position(|row| row.deck_id() == id) else {
+            return;
+        };
+        let deck = match state.archive_deck(id) {
+            Ok(deck) => deck,
+            Err(err) => {
+                self.error_toast(&archived_text::not_archived(&err));
+                return;
+            }
+        };
+        self.reload_or_toast(Focus::Index(index));
+        self.show_archived_toast(&state, deck.id);
+    }
+
+    /// Shows "Deck archived" with Undo, which unarchives deck `id` and has
+    /// every page read its decks again, with the focus on the deck if the
+    /// deck list shows. From this page, the window's root, which lives as
+    /// long as it: a deck page that archived its deck is gone by then.
+    pub fn show_archived_toast(&self, state: &AppState, id: String) {
+        let state = state.clone();
+        let page = self.downgrade();
+        let toast = undo_toast(&archived_text::archived_toast(), move || {
+            let Some(page) = page.upgrade() else {
+                return;
+            };
+            match state.unarchive_deck(&id) {
+                Ok(_) => {
+                    if let Some(window) = page.root().and_downcast::<RappelWindow>() {
+                        window.data_changed();
+                    }
+                    page.deck_restored(&id);
+                }
+                Err(err) => page.error_toast(&archived_text::not_unarchived(&err)),
+            }
+        });
+        show_toast_from(self, toast);
+    }
+
+    /// After a deck left the list from elsewhere (an Undo): if this page
+    /// shows, the row now at its place takes the focus at once
+    /// ([`Self::focus_place_on_return`] noted it); else on the next
+    /// `shown`.
+    pub fn deck_left_list(&self) {
+        if self.is_on_top()
+            && let Some(index) = self.imp().return_index.take()
+        {
+            self.reload_or_toast(Focus::Index(index));
+        }
+    }
+
+    /// Makes the row now at deck `id`'s place take the focus the next time
+    /// this page shows: deck `id`, whose page is open, is leaving the list
+    /// (ADR 0068).
+    pub fn focus_place_on_return(&self, id: &str) {
+        if let Some(index) = self.rows().iter().position(|row| row.deck_id() == id) {
+            self.imp().return_index.set(Some(index));
+        }
+    }
+
     /// Asks for a name and creates the deck.
     pub fn new_deck(&self) {
         let Some(state) = self.imp().state().cloned() else {
@@ -297,7 +416,7 @@ impl DecksPage {
             #[weak(rename_to = page)]
             self,
             async move {
-                let Some(decks) = page.decks(&state) else {
+                let Some(decks) = page.named_decks(&state) else {
                     return;
                 };
                 let Some(name) = page.ask(Purpose::Create, decks).await else {
@@ -323,7 +442,7 @@ impl DecksPage {
             #[weak(rename_to = page)]
             self,
             async move {
-                let Some(decks) = page.decks(&state) else {
+                let Some(decks) = page.named_decks(&state) else {
                     return;
                 };
                 let Some(deck) = decks.iter().find(|d| d.id == id).cloned() else {
@@ -505,9 +624,26 @@ impl DecksPage {
         name
     }
 
-    /// The live decks, in the list's order, or `None` after showing a
-    /// toast. Without their counts: those grow with the number of cards,
-    /// and only the rows show them (issue #42).
+    /// The live decks, archived ones included, for the name dialog's
+    /// check (an archived deck's name stays taken, ADR 0068), or `None`
+    /// after showing a toast.
+    fn named_decks(&self, state: &AppState) -> Option<Vec<Deck>> {
+        match state.decks_with_archived() {
+            Ok(decks) => Some(decks),
+            Err(err) => {
+                // Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
+                self.error_toast(&with_error(
+                    &gettext("The decks could not be read: {error}"),
+                    &err,
+                ));
+                None
+            }
+        }
+    }
+
+    /// The live decks that are not archived, in the list's order, or
+    /// `None` after showing a toast. Without their counts: those grow with
+    /// the number of cards, and only the rows show them (issue #42).
     fn decks(&self, state: &AppState) -> Option<Vec<Deck>> {
         match state.decks() {
             Ok(decks) => Some(decks),
@@ -534,7 +670,9 @@ impl DecksPage {
         let now = rappel_core::time::now_ms();
         let decks = state.list_decks(now)?;
         let next_day = state.next_day_start(now)?;
+        let archived = state.archived_decks()?.len();
         self.arm_refresh(refresh_delay_ms(&decks, now, next_day));
+        self.show_archived_count(archived);
 
         let rows = self.rows();
         let same_decks = rows.len() == decks.len()
@@ -590,6 +728,49 @@ impl DecksPage {
             }
         }
         Ok(())
+    }
+
+    /// Shows the "Archived Decks" rows while `archived` decks are archived,
+    /// with their count, and says in the empty state whether every deck is
+    /// archived.
+    fn show_archived_count(&self, archived: usize) {
+        let imp = self.imp();
+        let count = archived_text::row_count(archived);
+        let description = archived_text::row_description(archived);
+        for (shown, row, label) in [
+            (
+                imp.archived_list.upcast_ref::<gtk::Widget>(),
+                &imp.archived_row,
+                &imp.archived_count,
+            ),
+            (
+                imp.archived_empty_clamp.upcast_ref(),
+                &imp.archived_empty_row,
+                &imp.archived_empty_count,
+            ),
+        ] {
+            shown.set_visible(archived > 0);
+            label.set_label(&count);
+            // libadwaita-rs lists `Accessible` for `AdwActionRow` only with
+            // its `gtk_v4_10` feature, which we do not enable; every widget
+            // is one.
+            row.upcast_ref::<gtk::Widget>()
+                .update_property(&[gtk::accessible::Property::Description(&description)]);
+        }
+        let (title, text) = archived_text::deck_list_empty(archived);
+        imp.empty_status.set_title(&title);
+        imp.empty_status.set_description(Some(&text));
+    }
+
+    /// Whether the "Archived Decks" row shows, for tests.
+    #[cfg(test)]
+    pub(crate) fn archived_row_shown(&self) -> bool {
+        let imp = self.imp();
+        if imp.content_stack.visible_child_name().as_deref() == Some("empty") {
+            imp.archived_empty_clamp.get_visible()
+        } else {
+            imp.archived_list.get_visible()
+        }
     }
 
     /// The rows of the list, in order, for tests.

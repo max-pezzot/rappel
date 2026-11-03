@@ -453,6 +453,11 @@ fn suspend_allowed(shown_for: Option<Duration>) -> bool {
 }
 
 impl ReviewPage {
+    /// The id of the deck being studied.
+    pub fn deck_id(&self) -> Option<String> {
+        self.imp().deck.get().map(|d| d.id.clone())
+    }
+
     /// A session over what `deck` has to study now, showing its first card.
     /// `on_saved` is called after each save made from the session's editor.
     ///

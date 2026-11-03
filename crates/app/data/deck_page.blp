@@ -209,12 +209,18 @@ menu deck_menu {
     }
   }
 
-  // Changes to the deck itself, apart from what it shows. Disabled while
-  // there is no other deck (dialogs/merge_deck.rs).
+  // Changes to the deck itself, apart from what it shows. Merge Into… is
+  // disabled while there is no other deck (dialogs/merge_deck.rs); Archive
+  // goes back to the deck list, with an Undo toast (ADR 0068).
   section {
     item {
       label: _("_Merge Into…");
       action: "deck.merge";
+    }
+
+    item {
+      label: _("_Archive");
+      action: "deck.archive";
     }
   }
 }

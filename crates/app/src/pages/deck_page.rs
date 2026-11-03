@@ -141,6 +141,9 @@ mod imp {
             klass.install_action("deck.merge", None, |page, _, _| {
                 page.merge();
             });
+            klass.install_action("deck.archive", None, |page, _, _| {
+                page.archive();
+            });
             // Activated by the card rows' menus with the card id.
             rows::install_id_action(klass, "deck.edit-card", super::DeckPage::edit);
             rows::install_id_action(klass, "deck.delete-card", super::DeckPage::delete);
@@ -547,6 +550,25 @@ impl DeckPage {
                 window.leave_merged_deck(&page, &state, done);
             }
         ));
+    }
+
+    /// Archive from the Deck Menu: archives this deck at once. It has no
+    /// page then, so the page goes back to the deck list, with the focus on
+    /// the row now at its place; the toast's Undo brings it back there
+    /// (ADR 0068).
+    fn archive(&self) {
+        let imp = self.imp();
+        let (Some(state), Some(deck)) = (imp.state.get(), imp.deck.get()) else {
+            return;
+        };
+        if let Err(err) = state.archive_deck(&deck.id) {
+            self.error_toast(&crate::pages::archived_text::not_archived(&err));
+            return;
+        }
+        let Some(window) = self.root().and_downcast::<RappelWindow>() else {
+            return;
+        };
+        window.leave_archived_deck(self, state, &deck.id);
     }
 
     /// Shows the information of card `id`.
@@ -1966,18 +1988,28 @@ mod tests {
             selection.set_active(true);
             selection.toggle(&ids[1]);
             selection.run(&selection.chosen_ids(), Bulk::Delete);
-            settle();
-            assert_eq!(focused_card(&window), Some(ids[2].clone()));
+            // Waited for, not a fixed time: under load the list's rows and
+            // the focus come a few frames later (seen flaky with 100 ms).
+            let focus_on = |id: &String| {
+                crate::testing::settle_until(
+                    || focused_card(&window).as_ref() == Some(id),
+                    Duration::from_secs(5),
+                )
+            };
+            assert!(focus_on(&ids[2]), "{:?}", focused_card(&window));
             // The last card goes: the focus is on the new last one.
             selection.set_active(true);
             selection.toggle(&ids[2]);
             selection.run(&selection.chosen_ids(), Bulk::Delete);
-            settle();
-            assert_eq!(focused_card(&window), Some(ids[0].clone()));
+            assert!(focus_on(&ids[0]), "{:?}", focused_card(&window));
             // Every card goes: the empty state, with the focus on Add Card.
             selection.select_all();
             selection.run(&selection.chosen_ids(), Bulk::Delete);
-            settle();
+            let add = page.imp().empty_add_button.get().upcast::<gtk::Widget>();
+            assert!(crate::testing::settle_until(
+                || gtk::prelude::GtkWindowExt::focus(&window).as_ref() == Some(&add),
+                Duration::from_secs(5)
+            ));
             assert!(!selection.active() && !page.selecting());
             assert_eq!(
                 page.imp().content_stack.visible_child_name().as_deref(),

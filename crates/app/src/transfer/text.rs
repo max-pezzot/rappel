@@ -351,7 +351,7 @@ pub(super) fn conflicts_text(
         .map(|conflict| {
             let line = match conflict {
                 Conflict::DeckDiffers(id) => match deck_name(id) {
-                    Lookup::Found(name) => fill(
+                    Lookup::Found(name) | Lookup::Archived(name) => fill(
                         // Translators: {name} is the name of one of the
                         // user's decks.
                         &gettext("The deck “{name}” is different in the file"),
@@ -361,7 +361,7 @@ pub(super) fn conflicts_text(
                     Lookup::Unknown => gettext("A deck is different in the file"),
                 },
                 Conflict::CardDiffers(id) => match card_front(id) {
-                    Lookup::Found(front) => fill(
+                    Lookup::Found(front) | Lookup::Archived(front) => fill(
                         // Translators: {front} is the start of the front of
                         // one of the user's cards.
                         &gettext("The card “{front}” is different in the file"),
@@ -378,6 +378,14 @@ pub(super) fn conflicts_text(
                         // Translators: {name} is the name of one of the
                         // user's decks.
                         &gettext("The file has another deck named “{name}”"),
+                        &[("name", &name)],
+                    ),
+                    Lookup::Archived(name) => fill(
+                        // Translators: {name} is the name of one of the
+                        // user's decks, which is archived.
+                        &gettext(
+                            "The file has another deck named “{name}”, like your archived deck",
+                        ),
                         &[("name", &name)],
                     ),
                     Lookup::Deleted | Lookup::Unknown => {
@@ -415,6 +423,7 @@ mod tests {
     const CARD: &str = "01920000-0000-7000-8000-000000000002";
     const EVENT: &str = "01920000-0000-7000-8000-000000000003";
     const OTHER: &str = "01920000-0000-7000-8000-000000000004";
+    const ARCHIVED: &str = "01920000-0000-7000-8000-000000000005";
 
     fn counts(new: usize, present: usize) -> TableCounts {
         TableCounts {
@@ -595,6 +604,7 @@ mod tests {
         match id {
             DECK => Lookup::Found("Maths".to_owned()),
             OTHER => Lookup::Found("Physics".to_owned()),
+            ARCHIVED => Lookup::Archived("Latin".to_owned()),
             _ => Lookup::Deleted,
         }
     }
@@ -631,6 +641,14 @@ mod tests {
         assert_eq!(
             conflicts_text(&taken, names, fronts),
             "• The file has another deck named “Physics”"
+        );
+        let archived = [Conflict::DeckNameTaken {
+            deck_id: DECK.to_owned(),
+            existing_id: ARCHIVED.to_owned(),
+        }];
+        assert_eq!(
+            conflicts_text(&archived, names, fronts),
+            "• The file has another deck named “Latin”, like your archived deck"
         );
     }
 

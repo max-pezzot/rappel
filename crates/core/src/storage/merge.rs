@@ -13,7 +13,9 @@
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 
 use super::Store;
-use super::decks::{deck_from_row, deletion_stamp, duplicate_name, ensure_live_deck};
+use super::decks::{
+    DECK_COLUMNS, deck_from_row, deletion_stamp, ensure_active_deck, ensure_live_deck, name_taken,
+};
 use crate::domain::Deck;
 use crate::error::{Error, Result};
 use crate::time::now_ms;
@@ -41,8 +43,11 @@ impl Store {
     ///
     /// # Errors
     /// [`Error::MergeIntoItself`] if both are the same deck,
-    /// [`Error::DeckNotFound`] if either is not a live deck, SQLite errors.
-    /// On error nothing is written.
+    /// [`Error::DeckNotFound`] if either is not a live deck,
+    /// [`Error::DeckArchived`] if `target` is archived (ADR 0068: its cards
+    /// would leave study unseen), SQLite errors. An archived `source` is
+    /// merged like any deck; the app does not offer it. On error nothing is
+    /// written.
     pub fn merge_deck(&mut self, source: &str, target: &str) -> Result<Merged> {
         self.merge_deck_at(source, target, now_ms())
     }
@@ -56,7 +61,7 @@ impl Store {
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         ensure_live_deck(&tx, source)?;
-        ensure_live_deck(&tx, target)?;
+        ensure_active_deck(&tx, target)?;
         let mut cards = Vec::new();
         let mut live = 0;
         {
@@ -111,9 +116,9 @@ impl Store {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let (deck, deleted_at): (Deck, Option<i64>) = tx
             .query_row(
-                "SELECT id, name, created_at, updated_at, deleted_at FROM decks WHERE id = ?1",
+                &format!("SELECT {DECK_COLUMNS}, deleted_at FROM decks WHERE id = ?1"),
                 [&merged.source],
-                |r| Ok((deck_from_row(r)?, r.get(4)?)),
+                |r| Ok((deck_from_row(r)?, r.get(5)?)),
             )
             .optional()?
             .ok_or_else(|| Error::DeckNotFound(merged.source.clone()))?;
@@ -124,7 +129,7 @@ impl Store {
                     "UPDATE decks SET deleted_at = NULL WHERE id = ?1",
                     [&merged.source],
                 )
-                .map_err(|e| duplicate_name(e, &deck.name))?;
+                .map_err(|e| name_taken(&tx, e, &deck.name))?;
             }
             Some(_) => return Err(Error::DeckNotFound(merged.source.clone())),
         }

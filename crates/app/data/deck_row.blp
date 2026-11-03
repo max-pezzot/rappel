@@ -108,6 +108,8 @@ menu deck_menu {
     item (_("_Rename…"), "row.rename")
     // Disabled while there is no other deck (dialogs/merge_deck.rs).
     item (_("_Merge Into…"), "row.merge")
+    // Undone from a toast; not destructive, so above Delete (ADR 0068).
+    item (_("_Archive"), "row.archive")
     item (_("_Delete"), "row.delete")
   }
 }

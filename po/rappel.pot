@@ -10,6 +10,20 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=INTEGER; plural=EXPRESSION;\n"
 
+#: crates/app/data/archived_page.blp
+#: crates/app/data/browser_page.blp
+#: crates/app/data/decks_page.blp
+msgid "Archived Decks"
+msgstr ""
+
+#: crates/app/data/archived_page.blp
+msgid "No Archived Decks"
+msgstr ""
+
+#: crates/app/data/archived_page.blp
+msgid "Decks you archive show up here"
+msgstr ""
+
 #: crates/app/data/backup_row.blp
 #: crates/app/data/restore_dialog.blp
 msgid "_Restore"
@@ -335,6 +349,11 @@ msgstr ""
 msgid "_Merge Into…"
 msgstr ""
 
+#: crates/app/data/deck_page.blp
+#: crates/app/data/deck_row.blp
+msgid "_Archive"
+msgstr ""
+
 #: crates/app/data/deck_row.blp
 msgid "Deck Actions"
 msgstr ""
@@ -363,14 +382,6 @@ msgstr ""
 #: crates/app/data/decks_page.blp
 #: crates/app/data/shortcuts-dialog.blp
 msgid "Search All Cards"
-msgstr ""
-
-#: crates/app/data/decks_page.blp
-msgid "No Decks Yet"
-msgstr ""
-
-#: crates/app/data/decks_page.blp
-msgid "Create a deck to start adding cards"
 msgstr ""
 
 #: crates/app/data/decks_page.blp
@@ -1162,6 +1173,11 @@ msgstr ""
 msgid "A deck named “{name}” already exists"
 msgstr ""
 
+#. Translators: {name} is the name of one of the user's decks, which is archived (in Archived Decks, at the end of the deck list).
+#: crates/app/src/dialogs/deck_name_dialog.rs
+msgid "An archived deck is named “{name}”"
+msgstr ""
+
 #. Translators: {limit} is a number of bytes (1,024).
 #: crates/app/src/dialogs/deck_name_dialog.rs
 msgid "The name is too long (the limit is {limit} bytes)"
@@ -1202,6 +1218,7 @@ msgstr ""
 
 #. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
 #: crates/app/src/dialogs/merge_deck.rs
+#: crates/app/src/pages/archived_page.rs
 #: crates/app/src/pages/browser_page.rs
 #: crates/app/src/pages/deck_page.rs
 #: crates/app/src/pages/decks_page.rs
@@ -1227,6 +1244,11 @@ msgstr ""
 #. Translators: a toast: what is before ":" is its title, the rest is behind Details. {name} is a deck's name.
 #: crates/app/src/dialogs/merge_deck.rs
 msgid "“{name}” could not be restored: another deck has its name now."
+msgstr ""
+
+#. Translators: a toast: what is before ":" is its title, the rest is behind Details. {name} is a deck's name.
+#: crates/app/src/dialogs/merge_deck.rs
+msgid "“{name}” could not be restored: an archived deck has its name now."
 msgstr ""
 
 #: crates/app/src/dialogs/move_card.rs
@@ -1287,6 +1309,72 @@ msgstr ""
 msgid "The backup folder could not be opened: {error}"
 msgstr ""
 
+#. Translators: read with the "Archived Decks" row of the deck list; {count} is how many decks are archived.
+#. Translators: {count} is a number of decks.
+#: crates/app/src/pages/archived_page/text.rs
+#: crates/app/src/ui/text.rs
+msgid "{count} deck"
+msgid_plural "{count} decks"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/app/src/pages/archived_page/text.rs
+msgid "No Decks Yet"
+msgstr ""
+
+#: crates/app/src/pages/archived_page/text.rs
+msgid "Create a deck to start adding cards"
+msgstr ""
+
+#: crates/app/src/pages/archived_page/text.rs
+msgid "Every Deck Is Archived"
+msgstr ""
+
+#: crates/app/src/pages/archived_page/text.rs
+msgid "Create a deck, or unarchive one to study it again"
+msgstr ""
+
+#: crates/app/src/pages/archived_page/text.rs
+#: crates/app/src/pages/browser_page/text.rs
+msgid "No cards"
+msgstr ""
+
+#. Translators: {count} is a number of cards.
+#: crates/app/src/pages/archived_page/text.rs
+#: crates/app/src/pages/browser_page/text.rs
+#: crates/app/src/ui/text.rs
+msgid "{count} card"
+msgid_plural "{count} cards"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/app/src/pages/archived_page/text.rs
+msgid "Unarchive"
+msgstr ""
+
+#. Translators: the tooltip of an archived deck's Unarchive button; {name} is the deck's name.
+#: crates/app/src/pages/archived_page/text.rs
+msgid "Unarchive “{name}”"
+msgstr ""
+
+#: crates/app/src/pages/archived_page/text.rs
+msgid "Deck archived"
+msgstr ""
+
+#: crates/app/src/pages/archived_page/text.rs
+msgid "Deck unarchived"
+msgstr ""
+
+#. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
+#: crates/app/src/pages/archived_page/text.rs
+msgid "The deck could not be archived: {error}"
+msgstr ""
+
+#. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
+#: crates/app/src/pages/archived_page/text.rs
+msgid "The deck could not be unarchived: {error}"
+msgstr ""
+
 #. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
 #: crates/app/src/pages/browser_page.rs
 #: crates/app/src/pages/deck_page.rs
@@ -1321,10 +1409,6 @@ msgid "{card}, deck: {deck}, {status}"
 msgstr ""
 
 #: crates/app/src/pages/browser_page/text.rs
-msgid "No cards"
-msgstr ""
-
-#: crates/app/src/pages/browser_page/text.rs
 msgid "Cards you add to your decks will show up here"
 msgstr ""
 
@@ -1334,6 +1418,18 @@ msgstr ""
 
 #: crates/app/src/pages/browser_page/text.rs
 msgid "Try a different search or other filters"
+msgstr ""
+
+#: crates/app/src/pages/browser_page/text.rs
+msgid "Only Archived Cards"
+msgstr ""
+
+#: crates/app/src/pages/browser_page/text.rs
+msgid "The cards of archived decks are hidden"
+msgstr ""
+
+#: crates/app/src/pages/browser_page/text.rs
+msgid "_Show Archived Decks"
 msgstr ""
 
 #: crates/app/src/pages/browser_page/text.rs
@@ -1352,6 +1448,21 @@ msgstr ""
 msgid "_Clear Search and Filters"
 msgstr ""
 
+#. Translators: All Cards' filter of archived decks: their cards are not listed. Short: it shares a phone's width with three other filters.
+#: crates/app/src/pages/browser_page/text.rs
+msgid "Archived Hidden"
+msgstr ""
+
+#. Translators: All Cards' filter of archived decks: their cards are listed too.
+#: crates/app/src/pages/browser_page/text.rs
+msgid "Archived Shown"
+msgstr ""
+
+#. Translators: an archived deck in All Cards' deck filter; {name} is the deck's name.
+#: crates/app/src/pages/browser_page/text.rs
+msgid "{name} (archived)"
+msgstr ""
+
 #: crates/app/src/pages/browser_page/text.rs
 #: crates/app/src/pages/stats_page.rs
 msgid "All Decks"
@@ -1360,14 +1471,6 @@ msgstr ""
 #: crates/app/src/pages/browser_page/text.rs
 msgid "All Tags"
 msgstr ""
-
-#. Translators: {count} is a number of cards.
-#: crates/app/src/pages/browser_page/text.rs
-#: crates/app/src/ui/text.rs
-msgid "{count} card"
-msgid_plural "{count} cards"
-msgstr[0] ""
-msgstr[1] ""
 
 #. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
 #: crates/app/src/pages/deck_page.rs
@@ -2222,6 +2325,13 @@ msgctxt "sentence separator"
 msgid " "
 msgstr ""
 
+#. Translators: {count} is a number of the user's archived decks that have the name of a deck of the Anki package.
+#: crates/app/src/transfer/anki_text.rs
+msgid "{count} of them is archived: its new cards are studied once you unarchive it."
+msgid_plural "{count} of them are archived: their new cards are studied once you unarchive them."
+msgstr[0] ""
+msgstr[1] ""
+
 #: crates/app/src/transfer/anki_text.rs
 #: crates/app/src/transfer/text.rs
 msgid "Nothing was imported: everything was already here"
@@ -2238,6 +2348,13 @@ msgstr ""
 #: crates/app/src/transfer/text.rs
 msgid "Import done"
 msgstr ""
+
+#. Translators: after an Anki import; {count} is a number of the user's archived decks that got cards.
+#: crates/app/src/transfer/anki_text.rs
+msgid "Cards went into {count} archived deck"
+msgid_plural "Cards went into {count} archived decks"
+msgstr[0] ""
+msgstr[1] ""
 
 #: crates/app/src/transfer/anki_text.rs
 msgid "Newer Anki package. Export it again in Anki with “Support older Anki versions” checked, then import that file"
@@ -2460,6 +2577,11 @@ msgstr ""
 msgid "The file has another deck named “{name}”"
 msgstr ""
 
+#. Translators: {name} is the name of one of the user's decks, which is archived.
+#: crates/app/src/transfer/text.rs
+msgid "The file has another deck named “{name}”, like your archived deck"
+msgstr ""
+
 #: crates/app/src/transfer/text.rs
 msgid "The file has another deck with the name of one of yours"
 msgstr ""
@@ -2679,13 +2801,6 @@ msgstr[1] ""
 #: crates/app/src/ui/text.rs
 msgid "{due} · {new}"
 msgstr ""
-
-#. Translators: {count} is a number of decks.
-#: crates/app/src/ui/text.rs
-msgid "{count} deck"
-msgid_plural "{count} decks"
-msgstr[0] ""
-msgstr[1] ""
 
 #. Translators: a time in seconds ("45 s").
 #: crates/app/src/ui/text.rs

@@ -10,7 +10,8 @@ use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use rappel_core::domain::{
-    Card, CardState, Deck, DeckSummary, Grade, ReviewEvent, SettingKey, Settings, Tag, TaggedCard,
+    ArchivedDeck, Card, CardState, Deck, DeckSummary, Grade, ReviewEvent, SettingKey, Settings,
+    Tag, TaggedCard,
 };
 use rappel_core::interchange::{
     AnkiPlan, AnkiReport, ExportSummary, FileKind, ImportPlan, ImportReport, file_kind,
@@ -330,13 +331,39 @@ impl AppState {
         store.list_decks(now, local_day_start_ms(now, hour))
     }
 
-    /// The live decks, without counting their cards (see [`Store::decks`]).
-    /// For names and ids; the deck list's rows use [`Self::list_decks`].
+    /// The live decks that are not archived, without counting their cards
+    /// (see [`Store::decks`]): what cards can be moved or merged into. The
+    /// deck list's rows use [`Self::list_decks`].
     pub fn decks(&self) -> rappel_core::Result<Vec<Deck>> {
         self.0.store.borrow().decks()
     }
 
-    /// Live deck `id`, without its counts (see [`Store::deck`]).
+    /// Every live deck, archived ones included (see
+    /// [`Store::decks_with_archived`]): for names (the name check, All
+    /// Cards' deck filter, import conflicts).
+    pub fn decks_with_archived(&self) -> rappel_core::Result<Vec<Deck>> {
+        self.0.store.borrow().decks_with_archived()
+    }
+
+    /// The archived decks with their card counts (see
+    /// [`Store::archived_decks`]).
+    pub fn archived_decks(&self) -> rappel_core::Result<Vec<ArchivedDeck>> {
+        self.0.store.borrow().archived_decks()
+    }
+
+    /// Archives a deck (see [`Store::archive_deck`]).
+    pub fn archive_deck(&self, id: &str) -> rappel_core::Result<Deck> {
+        self.0.store.borrow_mut().archive_deck(id)
+    }
+
+    /// Unarchives a deck, the Undo of [`Self::archive_deck`] (see
+    /// [`Store::unarchive_deck`]).
+    pub fn unarchive_deck(&self, id: &str) -> rappel_core::Result<Deck> {
+        self.0.store.borrow_mut().unarchive_deck(id)
+    }
+
+    /// Live deck `id`, archived or not, without its counts (see
+    /// [`Store::deck`]).
     pub fn deck(&self, id: &str) -> rappel_core::Result<Deck> {
         self.0.store.borrow().deck(id)
     }
@@ -421,6 +448,18 @@ impl AppState {
     /// (see [`Store::used_tags`], ADR 0052).
     pub fn used_tags(&self) -> rappel_core::Result<Vec<Tag>> {
         self.0.store.borrow().used_tags()
+    }
+
+    /// The tags in use, the cards of archived decks counted only with
+    /// `include_archived` (see [`Store::used_tags_listed`], ADR 0068).
+    pub fn used_tags_listed(&self, include_archived: bool) -> rappel_core::Result<Vec<Tag>> {
+        self.0.store.borrow().used_tags_listed(include_archived)
+    }
+
+    /// Whether any live card is left, archived decks included (see
+    /// [`Store::has_live_cards`]).
+    pub fn has_live_cards(&self) -> rappel_core::Result<bool> {
+        self.0.store.borrow().has_live_cards()
     }
 
     /// Every tag, unused ones too (see [`Store::tags`]).

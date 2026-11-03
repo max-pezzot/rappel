@@ -16,10 +16,13 @@ use crate::state::AppState;
 use crate::ui::toast::undo_toast;
 
 /// The decks a card of deck `from` can be moved to: every deck but its
-/// own, in the order given. Archived decks do not exist yet; phase 3a's
-/// archive slice leaves them out here.
+/// own and the archived ones (a card moved there would leave study
+/// unseen, ADR 0068), in the order given.
 pub fn targets<'a>(decks: &'a [Deck], from: &str) -> Vec<&'a Deck> {
-    decks.iter().filter(|deck| deck.id != from).collect()
+    decks
+        .iter()
+        .filter(|deck| deck.id != from && !deck.is_archived())
+        .collect()
 }
 
 /// The decks a card of deck `from` can be moved to from its menu, where
@@ -39,8 +42,8 @@ pub fn card_targets(decks: &[Deck], from: Option<&str>) -> Option<Vec<Deck>> {
 /// would be a dead end.
 pub fn offered(decks: &[Deck], from: Option<&str>) -> bool {
     match from {
-        Some(from) => decks.iter().any(|deck| deck.id != from),
-        None => decks.len() >= 2,
+        Some(from) => !targets(decks, from).is_empty(),
+        None => decks.iter().filter(|deck| !deck.is_archived()).count() >= 2,
     }
 }
 
@@ -117,6 +120,7 @@ mod tests {
             name: format!("Deck {id}"),
             created_at: 0,
             updated_at: 0,
+            archived_at: None,
         }
     }
 
@@ -164,6 +168,23 @@ mod tests {
         assert!(!offered(&[], None));
         assert!(!offered(&one, None));
         assert!(offered(&two, None));
+    }
+
+    /// Archived decks are never offered (ADR 0068).
+    #[test]
+    fn archived_decks_are_not_targets() {
+        let archived = Deck {
+            archived_at: Some(1),
+            ..deck("b")
+        };
+        let decks = [deck("a"), archived.clone(), deck("c")];
+        let ids: Vec<&str> = targets(&decks, "a")
+            .into_iter()
+            .map(|d| d.id.as_str())
+            .collect();
+        assert_eq!(ids, ["c"]);
+        assert!(!offered(&[deck("a"), archived.clone()], Some("a")));
+        assert!(!offered(&[deck("a"), archived], None));
     }
 
     #[test]

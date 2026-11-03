@@ -14,7 +14,7 @@ use crate::ui::text::with_error;
 use adw::prelude::*;
 use adw::subclass::prelude::*;
 use gtk::{gio, glib};
-use rappel_core::domain::Card;
+use rappel_core::domain::{Card, Deck};
 use rappel_core::storage::BrowseQuery;
 
 use crate::dialogs::card_editor::{CardEditor, Saved};
@@ -69,6 +69,10 @@ mod imp {
         #[template_child]
         pub state_filter: TemplateChild<gtk::DropDown>,
         #[template_child]
+        pub archived_filter: TemplateChild<gtk::DropDown>,
+        #[template_child]
+        pub filter_grid: TemplateChild<gtk::Grid>,
+        #[template_child]
         pub filter_bar: TemplateChild<adw::Clamp>,
         #[template_child]
         pub content_stack: TemplateChild<gtk::Stack>,
@@ -97,8 +101,11 @@ mod imp {
         /// Selection mode: the chosen cards, the header, the action bar and
         /// the bulk actions (`ui::selection`).
         pub selection: OnceCell<CardSelection<super::BrowserPage, BrowseItem>>,
-        /// The decks and tags the filter drop-downs list, after "All".
+        /// The decks that are not archived: where cards can be moved.
         pub decks: RefCell<Vec<Deck>>,
+        /// The decks and tags the filter drop-downs list, after "All"
+        /// (archived decks only while they are shown).
+        pub filter_decks: RefCell<Vec<Deck>>,
         pub tags: RefCell<Vec<Tag>>,
         /// An editor is open; a second one is not opened.
         pub editing: Rc<Cell<bool>>,
@@ -183,7 +190,13 @@ impl BrowserPage {
         // The empty state on a short window (ADR 0058); its icon changes
         // with the state, so only `compact`.
         crate::ui::breakpoint::compact_when(&imp.empty_short, &*imp.empty_page);
-        for filter in [&*imp.deck_filter, &*imp.tag_filter, &*imp.state_filter] {
+        dropdown::set_labels(&imp.archived_filter, &text::archived_entries());
+        for filter in [
+            &*imp.deck_filter,
+            &*imp.tag_filter,
+            &*imp.state_filter,
+            &*imp.archived_filter,
+        ] {
             dropdown::shrinkable(filter);
         }
         // On a phone Select All and the action bar keep only their icons.
@@ -244,6 +257,12 @@ impl BrowserPage {
 
     /// Reads the rows again, after an import.
     pub fn reload_all(&self) {
+        self.reload_filters();
+        self.requery();
+    }
+
+    /// Reads the decks and tags of the filters again, or says why not.
+    fn reload_filters(&self) {
         if let Err(err) = self.load_filters(None) {
             // Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
             self.error_toast(&with_error(
@@ -251,7 +270,34 @@ impl BrowserPage {
                 &err,
             ));
         }
-        self.requery();
+    }
+
+    /// Puts the archived drop-down beside the other filters, or under them
+    /// on a phone (`text::filter_layout`). A child's place in a grid is a
+    /// property of its layout child, which no breakpoint setter reaches,
+    /// hence the code.
+    fn place_archived_filter(&self) {
+        let imp = self.imp();
+        let layout = text::filter_layout(self.compact(), imp.archived_filter.get_visible());
+        let grid = &imp.filter_grid;
+        grid.set_column_homogeneous(layout.homogeneous);
+        let (column, row, width) = if layout.archived_below {
+            (0, 1, 3)
+        } else {
+            (3, 0, 1)
+        };
+        let filter = imp.archived_filter.get();
+        if grid.query_child(&filter) != (column, row, width, 1) {
+            grid.remove(&filter);
+            grid.attach(&filter, column, row, width, 1);
+        }
+    }
+
+    /// Whether the cards of archived decks are listed.
+    fn archived_shown(&self) -> bool {
+        let filter = &self.imp().archived_filter;
+        // The property, not `is_visible`: the page may not be shown yet.
+        text::archived_shown(filter.get_visible(), filter.selected())
     }
 
     fn connect_signals(&self) {
@@ -261,7 +307,10 @@ impl BrowserPage {
             glib::clone!(
                 #[weak(rename_to = page)]
                 self,
-                move |compact| page.set_compact(compact)
+                move |compact| {
+                    page.set_compact(compact);
+                    page.place_archived_filter();
+                }
             ),
         );
         imp.search_entry.connect_search_changed(glib::clone!(
@@ -310,6 +359,18 @@ impl BrowserPage {
                 }
             ));
         }
+        // Showing or hiding archived decks changes what the deck filter
+        // lists too.
+        imp.archived_filter.connect_selected_notify(glib::clone!(
+            #[weak(rename_to = page)]
+            self,
+            move |_| {
+                if !page.imp().quiet.get() {
+                    page.reload_filters();
+                    page.search();
+                }
+            }
+        ));
         imp.card_list.connect_activate(glib::clone!(
             #[weak(rename_to = page)]
             self,
@@ -451,25 +512,41 @@ impl BrowserPage {
     /// Fills the deck and tag drop-downs, keeping what was chosen (or
     /// choosing `deck_id`). The tag filter lists the tags in use, and the
     /// chosen one even if no card has it any more (`text::filter_tags`,
-    /// ADR 0052).
+    /// ADR 0052). The archived filter shows while some deck is archived,
+    /// and the deck filter lists the archived decks, marked, while they are
+    /// shown (ADR 0068).
     fn load_filters(&self, deck_id: Option<&str>) -> rappel_core::Result<()> {
         let imp = self.imp();
         let Some(state) = imp.state.get() else {
             return Ok(());
         };
-        let decks = state.decks()?;
-        let kept_deck = text::filter_choice(imp.deck_filter.selected(), imp.decks.borrow().len())
-            .map(|i| imp.decks.borrow()[i].id.clone());
+        let every_deck = state.decks_with_archived()?;
+        let decks: Vec<Deck> = every_deck
+            .iter()
+            .filter(|deck| !deck.is_archived())
+            .cloned()
+            .collect();
+        let kept_deck =
+            text::filter_choice(imp.deck_filter.selected(), imp.filter_decks.borrow().len())
+                .map(|i| imp.filter_decks.borrow()[i].id.clone());
         let kept = text::filter_choice(imp.tag_filter.selected(), imp.tags.borrow().len())
             .map(|i| imp.tags.borrow()[i].clone());
         let kept_tag = kept.as_ref().map(|t| t.id.clone());
-        let tags = text::filter_tags(state.used_tags()?, kept);
+        let any_archived = every_deck.iter().any(Deck::is_archived);
+        let show_archived = text::archived_shown(any_archived, imp.archived_filter.selected());
+        // Hidden, archived decks lend the tag filter no tag of their own.
+        let tags = text::filter_tags(state.used_tags_listed(show_archived)?, kept);
         let want_deck = deck_id.map(str::to_owned).or(kept_deck);
 
         imp.quiet.set(true);
+        imp.archived_filter.set_visible(any_archived);
+        self.place_archived_filter();
+        let listed = text::filter_decks(&every_deck, show_archived);
         dropdown::set_labels(
             &imp.deck_filter,
-            &labels(&text::all_decks(), decks.iter().map(|d| &d.name)),
+            &std::iter::once(text::all_decks())
+                .chain(listed.iter().map(text::deck_filter_label))
+                .collect::<Vec<_>>(),
         );
         dropdown::set_labels(
             &imp.tag_filter,
@@ -480,7 +557,7 @@ impl BrowserPage {
         imp.deck_filter.set_selected(position(
             want_deck
                 .as_ref()
-                .and_then(|id| decks.iter().position(|d| &d.id == id)),
+                .and_then(|id| listed.iter().position(|d| &d.id == id)),
         ));
         imp.tag_filter.set_selected(position(
             kept_tag
@@ -490,6 +567,7 @@ impl BrowserPage {
         imp.quiet.set(false);
         self.set_can_move(move_card::offered(&decks, None));
         imp.decks.replace(decks);
+        imp.filter_decks.replace(listed);
         imp.tags.replace(tags);
         Ok(())
     }
@@ -499,11 +577,15 @@ impl BrowserPage {
         let imp = self.imp();
         BrowseQuery {
             text: imp.search_entry.text().to_string(),
-            deck_id: text::filter_choice(imp.deck_filter.selected(), imp.decks.borrow().len())
-                .map(|i| imp.decks.borrow()[i].id.clone()),
+            deck_id: text::filter_choice(
+                imp.deck_filter.selected(),
+                imp.filter_decks.borrow().len(),
+            )
+            .map(|i| imp.filter_decks.borrow()[i].id.clone()),
             tag_id: text::filter_choice(imp.tag_filter.selected(), imp.tags.borrow().len())
                 .map(|i| imp.tags.borrow()[i].id.clone()),
             state: text::state_filter(imp.state_filter.selected()),
+            include_archived: self.archived_shown(),
         }
     }
 
@@ -544,14 +626,12 @@ impl BrowserPage {
         let items: Vec<BrowseItem> = rows.into_iter().map(BrowseItem::new).collect();
         store.splice(0, store.n_items(), &items);
         let filtered = text::is_filtered(&query);
-        // Whether there is any card at all, whatever the filters: read only
-        // when a filtered search found nothing (unfiltered, no rows means
-        // no cards).
-        let collection_empty = if items.is_empty() && filtered {
-            state
-                .list_decks(rappel_core::time::now_ms())?
-                .iter()
-                .all(|deck| deck.card_count == 0)
+        // Whether there is any card at all, whatever the filters, archived
+        // decks included: read only when nothing was found while something
+        // was left out (a filter, or archived decks hidden); otherwise no
+        // rows means no cards.
+        let collection_empty = if items.is_empty() && (filtered || !query.include_archived) {
+            !state.has_live_cards()?
         } else {
             items.is_empty()
         };
@@ -564,11 +644,13 @@ impl BrowserPage {
                 imp.empty_page.set_icon_name(Some(icon));
                 imp.empty_page.set_title(&title);
                 imp.empty_page.set_description(Some(&description));
-                imp.empty_button.set_label(&if empty == Empty::NoCards {
-                    text::go_to_decks()
-                } else {
-                    let (searched, filtered) = text::searched_and_filtered(&query);
-                    text::clear_label(searched, filtered)
+                imp.empty_button.set_label(&match empty {
+                    Empty::NoCards => text::go_to_decks(),
+                    Empty::OnlyArchived => text::show_archived_label(),
+                    Empty::NoResults | Empty::No => {
+                        let (searched, filtered) = text::searched_and_filtered(&query);
+                        text::clear_label(searched, filtered)
+                    }
                 });
                 imp.content_stack.set_visible_child_name("empty");
             }
@@ -619,6 +701,8 @@ impl BrowserPage {
         match self.imp().empty.get() {
             Empty::NoCards => nav::pop(self),
             Empty::NoResults => self.clear_filters(),
+            // The drop-down's own change lists them (and their decks).
+            Empty::OnlyArchived => self.imp().archived_filter.set_selected(1),
             Empty::No => {}
         }
     }
@@ -885,7 +969,7 @@ mod tests {
             assert_eq!(shown(&page).len(), 2);
             // The deck filter: entry 0 is "All Decks", then the decks by name.
             let position = imp
-                .decks
+                .filter_decks
                 .borrow()
                 .iter()
                 .position(|d| d.id == maths)
@@ -1075,6 +1159,101 @@ mod tests {
                 Some(imp.selection_header.cancel_button().upcast())
             );
             window.destroy();
+        });
+    }
+
+    /// The labels of a drop-down's entries.
+    fn entries(dropdown: &gtk::DropDown) -> Vec<String> {
+        let model = dropdown.model().unwrap();
+        (0..model.n_items())
+            .map(|i| {
+                model
+                    .item(i)
+                    .and_downcast::<gtk::StringObject>()
+                    .unwrap()
+                    .string()
+                    .to_string()
+            })
+            .collect()
+    }
+
+    /// The archived filter (ADR 0068): shown only while a deck is
+    /// archived, hiding its cards by default; shown, they are listed and
+    /// the deck filter offers the deck, marked. Clear Filters and Escape
+    /// leave it as it is; with only archived cards, the empty state offers
+    /// to show them.
+    #[test]
+    fn archived_decks_are_hidden_until_shown() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state, ids, maths) = state_with_cards();
+            let page = page_over(&state, None);
+            let imp = page.imp();
+            assert!(!imp.archived_filter.get_visible());
+            assert_eq!(shown(&page).len(), 4);
+
+            state.archive_deck(&maths).unwrap();
+            page.reload_all();
+            assert!(imp.archived_filter.get_visible());
+            assert_eq!(
+                entries(&imp.archived_filter),
+                ["Archived Hidden", "Archived Shown"]
+            );
+            assert_eq!(imp.archived_filter.selected(), 0);
+            assert_eq!(shown(&page).len(), 1);
+            assert_eq!(entries(&imp.deck_filter), ["All Decks", "Art"]);
+            // Only the archived deck's cards have "algebra".
+            assert_eq!(entries(&imp.tag_filter), ["All Tags"]);
+            // Moving needs two decks that are not archived.
+            assert!(!page.can_move());
+
+            imp.archived_filter.set_selected(1);
+            assert_eq!(shown(&page).len(), 4);
+            assert_eq!(
+                entries(&imp.deck_filter),
+                ["All Decks", "Art", "\u{2068}Maths\u{2069} (archived)"]
+            );
+            assert_eq!(entries(&imp.tag_filter), ["All Tags", "algebra"]);
+            imp.deck_filter.set_selected(2);
+            let mut listed = shown(&page);
+            listed.sort();
+            let mut expected = ids.clone();
+            expected.sort();
+            assert_eq!(listed, expected);
+            // Clear Filters keeps the archived decks shown.
+            page.clear_filters();
+            assert_eq!(imp.archived_filter.selected(), 1);
+            assert_eq!(shown(&page).len(), 4);
+            // Hidden again: the deck filter forgets the archived deck.
+            imp.deck_filter.set_selected(2);
+            imp.archived_filter.set_selected(0);
+            assert_eq!(imp.deck_filter.selected(), 0);
+            assert_eq!(shown(&page).len(), 1);
+            // Not a filter for Escape: it goes back as before.
+            assert!(!text::is_filtered(&page.query()));
+
+            // Every card archived and hidden: the empty state says so and
+            // its button shows them.
+            let art = state.decks().unwrap()[0].id.clone();
+            state.archive_deck(&art).unwrap();
+            page.reload_all();
+            assert_eq!(shown(&page).len(), 0);
+            assert_eq!(imp.empty_page.title(), "Only Archived Cards");
+            assert_eq!(
+                imp.empty_button.label().as_deref(),
+                Some("_Show Archived Decks")
+            );
+            assert!(imp.filter_bar.get_visible());
+            page.empty_action();
+            assert_eq!(imp.archived_filter.selected(), 1);
+            assert_eq!(shown(&page).len(), 4);
+
+            // No archived deck left: the filter goes, and every card shows.
+            state.unarchive_deck(&art).unwrap();
+            state.unarchive_deck(&maths).unwrap();
+            page.reload_all();
+            assert!(!imp.archived_filter.get_visible());
+            assert_eq!(shown(&page).len(), 4);
+            assert_eq!(entries(&imp.deck_filter), ["All Decks", "Art", "Maths"]);
         });
     }
 
