@@ -38,3 +38,23 @@ An entry in each card's ⋮ menu on the deck page, in All Cards' row menu (the t
 ### A table's border hugs its columns (PR #32, ADR 0019)
 
 PR #32 was written against the first renderer and is redone here on the current one (`render::table`, which now also takes the side's math budget). A table's `GtkGrid` sits in a horizontal `GtkScrolledWindow`. The viewport gives its child at least its own width (`hscroll-policy` is `Minimum`, `GtkScrollable` docs), and the grid's default `Fill` alignment stretched the bordered grid across the whole card, leaving an empty strip inside the border on a wide window. The grid now has `halign: Start`, so it keeps its natural width (`GtkAlign` docs: alignment applies when a widget is given more than it needs). A table wider than the window still gets its full width, since its cells do not wrap, and scrolls. #32 can be closed.
+
+## Amended in phase 3a (slice 7): the card editor's hint, and an audit (#117)
+
+The maintainer found the same clutter in the card editor: a dimmed "Ctrl ⏎ to save" (an `AdwShortcutLabel` and a caption) after the fields. It is gone, with the box that held it (`save_hint`). **Save** says its key in its tooltip, "Save (Ctrl+Enter)", through the same `{name} ({key})` string and GTK's accelerator label as the review page's buttons, and its accessible description keeps stating it ("Press Ctrl+Enter"). The helpers moved from the review page to `ui::keys` (`tooltip`, `label`), so any page can use them; the review page's `KEYS` table stays its own. There is no button for Save and Add Another (Ctrl+Shift+Enter), so it needs nothing. The Keyboard Shortcuts dialog is unchanged. ADR 0043's "quiet hint" is superseded.
+
+**The audit.** Every `.blp` file and every `gettext` call was searched for a key shown on screen (`Ctrl`, `⏎`, `Space`, `Enter`, `Esc`, "Press", "to save", `AdwShortcutLabel`, `.dimmed` captions):
+
+| Where | Old | Now |
+|---|---|---|
+| `card_editor.blp` | visible "Ctrl ⏎ to save" under the tags | removed |
+| `card_editor.blp`, Save | tooltip "Save (Ctrl+Enter)", fixed English | tooltip from `ui::keys` and the editor's `SAVE_KEYS`; description "Press Ctrl+Enter" |
+| `review_page.blp`, Undo | tooltip "Undo Last Answer (Ctrl+Z)", fixed English | `ui::keys` from the page's `KEYS`: "Undo Last Answer (Ctrl+Z)" in the user's language |
+| `review_page.blp`, Edit | tooltip "Edit Card (E)", fixed English | `ui::keys` from `KEYS`: "Edit Card (E)" |
+| `review_page.blp`, Show Answer / Fail / Pass | accessible descriptions "Press Space", "Press 1", "Press 2 or Space" | unchanged (#105: descriptions, not visible) |
+| `card_editor.blp`, Tags group | description "Press Enter or type a comma after each tag" | kept: it says how the field works (a comma or Enter makes a tag), not a shortcut for a control |
+| Add Tags dialog body | "…Press Enter or type a comma after each one." | kept, same reason |
+| tag suggestions (`tag_entry/keys.rs`) | the announcement to screen readers "Tab takes the first, the arrow keys choose, Escape keeps what you typed" | kept: spoken, not shown |
+| menus (`card_menu`, header menus) | GTK's accelerator labels ("I", "S", "Delete", "E", "Ctrl+,") | kept: GTK's own, as asked |
+
+Nothing else shows a key. The store screenshots in `data/screenshots/` that show the editor, if any, still show the old hint; they are not retaken here.

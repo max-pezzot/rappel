@@ -48,7 +48,7 @@ use crate::ui::callback::Callback;
 use crate::ui::text::group_digits;
 use crate::ui::text::with_error;
 use crate::ui::toast::{info_toast, show_error};
-use crate::ui::{breakpoint, dialog, init_once};
+use crate::ui::{breakpoint, dialog, init_once, keys};
 use crate::widgets::tag_entry::field::{self as tags, TagsCheck};
 
 use self::layout::Mode;
@@ -66,6 +66,13 @@ pub(crate) const SAVE_KEYS: [(&str, bool); 4] = [
     ("<Control><Shift>Return", true),
     ("<Control><Shift>KP_Enter", true),
 ];
+
+/// The tooltip of Save: its name and the first of [`SAVE_KEYS`], "Save
+/// (Ctrl+Enter)".
+fn save_tooltip() -> Option<String> {
+    let (trigger, _) = SAVE_KEYS.first()?;
+    keys::label(trigger).map(|key| keys::tooltip(&gettext("Save"), &key))
+}
 
 /// The formatting keys and the marker each wraps the selection in.
 pub(crate) const FORMAT_KEYS: [(&str, &str); 2] =
@@ -98,6 +105,8 @@ mod imp {
     pub struct CardEditor {
         #[template_child]
         pub toast_overlay: TemplateChild<adw::ToastOverlay>,
+        #[template_child]
+        pub save_button: TemplateChild<gtk::Button>,
         #[template_child]
         pub front_view: TemplateChild<sourceview5::View>,
         #[template_child]
@@ -299,11 +308,21 @@ impl CardEditor {
 
     fn setup(&self) {
         self.setup_shortcuts();
+        self.setup_save_tooltip();
         self.setup_views();
         self.setup_tags();
         self.setup_media();
         self.setup_layout();
         self.connect_close_attempt(Self::ask_discard);
+    }
+
+    /// Gives Save its key in its tooltip, "Save (Ctrl+Enter)" (#117, ADR
+    /// 0064): the key the editor binds, as GTK labels it, in the user's
+    /// language. There is no hint on the page any more.
+    fn setup_save_tooltip(&self) {
+        if let Some(tooltip) = save_tooltip() {
+            self.imp().save_button.set_tooltip_text(Some(&tooltip));
+        }
     }
 
     /// Ctrl+Enter, Ctrl+Shift+Enter, Ctrl+B and Ctrl+I.
@@ -918,6 +937,40 @@ fn wrap_selection(buffer: &sourceview5::Buffer, marker: &str) {
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
+
+    /// Save says its key in its tooltip (#117), and nothing on the page
+    /// hints it any more: neither the keycap label nor its words.
+    #[test]
+    fn save_says_its_key_in_its_tooltip_and_nothing_else_hints_it() {
+        crate::testing::with_widgets(|| {
+            assert_eq!(save_tooltip().as_deref(), Some("Save (Ctrl+Enter)"));
+            // The key named is one the editor binds, to save and close.
+            assert_eq!(SAVE_KEYS[0], ("<Control>Return", false));
+            let (_tmp, _state, _deck, editor, _saved) = editor_over(None);
+            assert_eq!(
+                editor.imp().save_button.tooltip_text().as_deref(),
+                Some("Save (Ctrl+Enter)")
+            );
+            // No keycap label anywhere in the editor, and no caption.
+            let mut todo = vec![editor.clone().upcast::<gtk::Widget>()];
+            while let Some(widget) = todo.pop() {
+                assert_ne!(widget.type_().name(), "AdwShortcutLabel");
+                if let Some(label) = widget.downcast_ref::<gtk::Label>() {
+                    assert_ne!(label.label(), "to save");
+                }
+                todo.extend(widget.first_child());
+                todo.extend(widget.next_sibling());
+            }
+            // GTK has no public getter for an accessible description, so
+            // the layout's source is checked, as for the review page.
+            let blueprint = include_str!("../../../data/card_editor.blp");
+            for gone in ["save_hint", "to save", "ShortcutLabel"] {
+                assert!(!blueprint.contains(gone), "{gone}");
+            }
+            assert!(blueprint.contains("description: _(\"Press Ctrl+Enter\");"));
+            assert!(!blueprint.contains("tooltip-text: _(\"Save"));
+        });
+    }
 
     #[test]
     fn the_scheme_follows_the_style() {

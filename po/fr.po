@@ -121,8 +121,8 @@ msgid "_Save"
 msgstr "_Enregistrer"
 
 #: crates/app/data/card_editor.blp
-msgid "Save (Ctrl+Enter)"
-msgstr "Enregistrer (Ctrl+Entrée)"
+msgid "Press Ctrl+Enter"
+msgstr "Appuyez sur Ctrl+Entrée"
 
 #: crates/app/data/card_editor.blp
 msgid "Front"
@@ -171,10 +171,6 @@ msgstr "Étiquettes"
 #: crates/app/data/card_editor.blp
 msgid "Press Enter or type a comma after each tag"
 msgstr "Appuyez sur Entrée ou tapez une virgule après chaque étiquette"
-
-#: crates/app/data/card_editor.blp
-msgid "to save"
-msgstr "pour enregistrer"
 
 #: crates/app/data/card_editor.blp
 msgid "Preview"
@@ -585,11 +581,8 @@ msgid "Study"
 msgstr "Étude"
 
 #: crates/app/data/review_page.blp
-msgid "Undo Last Answer (Ctrl+Z)"
-msgstr "Annuler la dernière réponse (Ctrl+Z)"
-
-#: crates/app/data/review_page.blp
 #: crates/app/data/shortcuts-dialog.blp
+#: crates/app/src/pages/review_page.rs
 msgid "Undo Last Answer"
 msgstr "Annuler la dernière réponse"
 
@@ -598,12 +591,9 @@ msgid "Card Menu"
 msgstr "Menu de la carte"
 
 #: crates/app/data/review_page.blp
-msgid "Edit Card (E)"
-msgstr "Modifier la carte (E)"
-
-#: crates/app/data/review_page.blp
 #: crates/app/data/shortcuts-dialog.blp
 #: crates/app/src/dialogs/card_editor/mod.rs
+#: crates/app/src/pages/review_page.rs
 msgid "Edit Card"
 msgstr "Modifier la carte"
 
@@ -798,6 +788,7 @@ msgid "Card Editor"
 msgstr "Éditeur de carte"
 
 #: crates/app/data/shortcuts-dialog.blp
+#: crates/app/src/dialogs/card_editor/mod.rs
 msgid "Save"
 msgstr "Enregistrer"
 
@@ -1705,11 +1696,6 @@ msgstr "La copie en attente n’a pas pu être vérifiée : {error}. Elle est 
 #: crates/app/src/pages/recovery_page.rs
 msgid "Finishing the restore failed: {error}"
 msgstr "Échec de la fin de restauration : {error}"
-
-#. Translators: the tooltip of a button that a key also presses. {name} is the button ("Pass"), {key} the key ("2").
-#: crates/app/src/pages/review_page.rs
-msgid "{name} ({key})"
-msgstr "{name} ({key})"
 
 #: crates/app/src/pages/review_page.rs
 msgctxt "page title"
@@ -2701,6 +2687,17 @@ msgid_plural "and {count} more"
 msgstr[0] "et {count} autre"
 msgstr[1] "et {count} autres"
 
+#. Translators: the tooltip of a button that a key also presses. {name} is the button ("Pass"), {key} the key ("2").
+#: crates/app/src/ui/keys.rs
+msgid "{name} ({key})"
+msgstr "{name} ({key})"
+
+#. Translators: the Return key as a tooltip names it, after the modifiers: "Ctrl+Enter".
+#: crates/app/src/ui/keys.rs
+msgctxt "key name"
+msgid "Enter"
+msgstr "Entrée"
+
 #. Translators: the accessible name of a row's menu button; {name} is a deck's name or a card's front.
 #: crates/app/src/ui/rows.rs
 msgid "Actions for {name}"
@@ -3286,6 +3283,18 @@ msgstr "Voyez combien vous avez étudié et ce que vous retenez"
 #: data/io.github.rsmirke.Rappel.metainfo.xml.in
 msgid "Pictures on cards, on a phone"
 msgstr "Des images sur les cartes, sur un téléphone"
+
+#~ msgid "Save (Ctrl+Enter)"
+#~ msgstr "Enregistrer (Ctrl+Entrée)"
+
+#~ msgid "to save"
+#~ msgstr "pour enregistrer"
+
+#~ msgid "Undo Last Answer (Ctrl+Z)"
+#~ msgstr "Annuler la dernière réponse (Ctrl+Z)"
+
+#~ msgid "Edit Card (E)"
+#~ msgstr "Modifier la carte (E)"
 
 #~ msgid "Space"
 #~ msgstr "Espace"

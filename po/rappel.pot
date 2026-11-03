@@ -119,7 +119,7 @@ msgid "_Save"
 msgstr ""
 
 #: crates/app/data/card_editor.blp
-msgid "Save (Ctrl+Enter)"
+msgid "Press Ctrl+Enter"
 msgstr ""
 
 #: crates/app/data/card_editor.blp
@@ -168,10 +168,6 @@ msgstr ""
 
 #: crates/app/data/card_editor.blp
 msgid "Press Enter or type a comma after each tag"
-msgstr ""
-
-#: crates/app/data/card_editor.blp
-msgid "to save"
 msgstr ""
 
 #: crates/app/data/card_editor.blp
@@ -583,11 +579,8 @@ msgid "Study"
 msgstr ""
 
 #: crates/app/data/review_page.blp
-msgid "Undo Last Answer (Ctrl+Z)"
-msgstr ""
-
-#: crates/app/data/review_page.blp
 #: crates/app/data/shortcuts-dialog.blp
+#: crates/app/src/pages/review_page.rs
 msgid "Undo Last Answer"
 msgstr ""
 
@@ -596,12 +589,9 @@ msgid "Card Menu"
 msgstr ""
 
 #: crates/app/data/review_page.blp
-msgid "Edit Card (E)"
-msgstr ""
-
-#: crates/app/data/review_page.blp
 #: crates/app/data/shortcuts-dialog.blp
 #: crates/app/src/dialogs/card_editor/mod.rs
+#: crates/app/src/pages/review_page.rs
 msgid "Edit Card"
 msgstr ""
 
@@ -796,6 +786,7 @@ msgid "Card Editor"
 msgstr ""
 
 #: crates/app/data/shortcuts-dialog.blp
+#: crates/app/src/dialogs/card_editor/mod.rs
 msgid "Save"
 msgstr ""
 
@@ -1702,11 +1693,6 @@ msgstr ""
 #. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
 #: crates/app/src/pages/recovery_page.rs
 msgid "Finishing the restore failed: {error}"
-msgstr ""
-
-#. Translators: the tooltip of a button that a key also presses. {name} is the button ("Pass"), {key} the key ("2").
-#: crates/app/src/pages/review_page.rs
-msgid "{name} ({key})"
 msgstr ""
 
 #: crates/app/src/pages/review_page.rs
@@ -2698,6 +2684,17 @@ msgid "and {count} more"
 msgid_plural "and {count} more"
 msgstr[0] ""
 msgstr[1] ""
+
+#. Translators: the tooltip of a button that a key also presses. {name} is the button ("Pass"), {key} the key ("2").
+#: crates/app/src/ui/keys.rs
+msgid "{name} ({key})"
+msgstr ""
+
+#. Translators: the Return key as a tooltip names it, after the modifiers: "Ctrl+Enter".
+#: crates/app/src/ui/keys.rs
+msgctxt "key name"
+msgid "Enter"
+msgstr ""
 
 #. Translators: the accessible name of a row's menu button; {name} is a deck's name or a card's front.
 #: crates/app/src/ui/rows.rs

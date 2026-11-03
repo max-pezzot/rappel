@@ -55,7 +55,7 @@ use crate::ui::text::{
 use crate::ui::tile::{Tile, set_tile};
 use crate::ui::toast::{info_toast, log_failure, show_error, show_toast_from, undo_toast};
 use crate::ui::undo::{self, UndoFailure};
-use crate::ui::{breakpoint, init_once, nav};
+use crate::ui::{breakpoint, init_once, keys, nav};
 use crate::window::RappelWindow;
 
 type OnSaved = dyn Fn(Saved);
@@ -84,6 +84,8 @@ mod imp {
         pub banner: TemplateChild<adw::Banner>,
         #[template_child]
         pub edit_button: TemplateChild<gtk::Button>,
+        #[template_child]
+        pub undo_button: TemplateChild<gtk::Button>,
         #[template_child]
         pub card_menu_button: TemplateChild<gtk::MenuButton>,
         #[template_child]
@@ -399,21 +401,11 @@ pub(crate) fn key_triggers() -> impl Iterator<Item = &'static str> {
     KEYS.iter().map(|(trigger, _)| *trigger)
 }
 
-/// The tooltip of a button that a key also presses: "Pass (2)". `name` is
-/// the button's name without its mnemonic, `key` the key as the user sees
-/// it ("Space").
-fn key_tooltip(name: &str, key: &str) -> String {
-    // Translators: the tooltip of a button that a key also presses.
-    // {name} is the button ("Pass"), {key} the key ("2").
-    i18n::fill(&gettext("{name} ({key})"), &[("name", name), ("key", key)])
-}
-
 /// How GTK labels the first of [`KEYS`] bound to `key` ("Space", "2"), the
 /// way it shows an accelerator in a menu, in the user's language.
 fn key_label(key: Key) -> Option<String> {
     let (trigger, _) = KEYS.iter().find(|(_, bound)| *bound == key)?;
-    let (keyval, modifiers) = gtk::accelerator_parse(*trigger)?;
-    Some(gtk::accelerator_get_label(keyval, modifiers).to_string())
+    keys::label(trigger)
 }
 
 /// What a key makes the page do.
@@ -680,9 +672,11 @@ impl ReviewPage {
             (&*imp.reveal_button, gettext("Show Answer"), Key::Space),
             (&*imp.fail_button, gettext("Fail"), Key::Fail),
             (&*imp.pass_button, gettext("Pass"), Key::Pass),
+            (&*imp.undo_button, gettext("Undo Last Answer"), Key::Undo),
+            (&*imp.edit_button, gettext("Edit Card"), Key::Edit),
         ] {
             if let Some(label) = key_label(key) {
-                button.set_tooltip_text(Some(&key_tooltip(&name, &label)));
+                button.set_tooltip_text(Some(&keys::tooltip(&name, &label)));
             }
         }
     }
@@ -2903,15 +2897,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_tooltip_names_the_button_and_its_key() {
-        assert_eq!(key_tooltip("Pass", "2"), "Pass (2)");
-        assert_eq!(key_tooltip("Fail", "1"), "Fail (1)");
-        assert_eq!(key_tooltip("Show Answer", "Space"), "Show Answer (Space)");
-        // A name or a key with braces is not read as a placeholder.
-        assert_eq!(key_tooltip("{key}", "{name}"), "{key} ({name})");
-    }
-
     /// The buttons' tooltips name the keys the page binds to the same act
     /// (#105), and no hint is left on the page.
     #[test]
@@ -2928,6 +2913,13 @@ mod tests {
                 ),
                 (&*imp.fail_button, "Fail (1)", "1", Act::Grade(Grade::Fail)),
                 (&*imp.pass_button, "Pass (2)", "2", Act::Grade(Grade::Pass)),
+                (
+                    &*imp.undo_button,
+                    "Undo Last Answer (Ctrl+Z)",
+                    "<Control>z",
+                    Act::Undo,
+                ),
+                (&*imp.edit_button, "Edit Card (E)", "e", Act::Edit),
             ] {
                 assert_eq!(button.tooltip_text().as_deref(), Some(tooltip));
                 let (_, bound) = KEYS.iter().find(|(t, _)| *t == trigger).unwrap();

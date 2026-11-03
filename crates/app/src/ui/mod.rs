@@ -11,6 +11,7 @@ pub mod debounce;
 pub mod dialog;
 pub mod dropdown;
 pub mod focus;
+pub mod keys;
 pub mod nav;
 pub mod rows;
 pub mod scroll;

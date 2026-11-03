@@ -16,6 +16,7 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 - **Ctrl+A chooses every card listed on All Cards**, whatever on the page has the keyboard (the list, a filter, the Select button), and starts selecting if you were not. In the search field it still selects the text. When selecting starts from the Select button (by Ctrl+A, or Enter or Space on it), the keyboard focus goes to the card list (ADR 0064, #106).
 
 ### Changed
+- **The card editor no longer shows "Ctrl ⏎ to save".** Save says its key in its tooltip instead, "Save (Ctrl+Enter)", as the review page's buttons do; the review page's Undo and Edit buttons now take their key from the page's own key table too.
 - **An export made before moving cards or merging decks imports again.** A card that differs only in its deck is now already present and stays in the deck it is in, and the import dialog says how many cards that is; before, every moved card was a conflict and the whole file was refused (ADR 0067).
 - CI: a pull request that changes only docs (`docs/`, `.claude/`, top-level Markdown other than `CHANGELOG.md`) skips the gate (ADR 0003, #111). The check that decides it never mistakes a renamed source file or a long list of code files for docs.
 - **All Cards: Move… is disabled when there is only one deck**, like Move to Deck… in a card's menu, and selecting stops when no card is left in the list. After moving, tagging or untagging selected cards, the keyboard focus stays on the cards once the dialog closes (ADR 0065).
