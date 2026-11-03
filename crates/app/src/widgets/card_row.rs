@@ -293,8 +293,8 @@ impl CardRow {
         let &RowParts {
             front,
             back,
-            pill_names: tags,
-            tags: tag_list,
+            pill_names,
+            tags,
             suspended,
             is_new,
             id,
@@ -302,12 +302,12 @@ impl CardRow {
         let imp = self.imp();
         imp.front_label.set_label(front);
         imp.back_label.set_label(back);
-        imp.tag_pills.set_tags(tags);
-        self.set_tag_menu(tag_list);
-        imp.tag_pills.set_visible(!tags.is_empty());
+        imp.tag_pills.set_tags(pill_names);
+        self.set_tag_menu(tags);
+        imp.tag_pills.set_visible(!pill_names.is_empty());
         // Without a back or tags, the line is left out.
         imp.detail_box
-            .set_visible(!back.is_empty() || !tags.is_empty());
+            .set_visible(!back.is_empty() || !pill_names.is_empty());
         rows::label_menu_button(&imp.menu_button, &text::spoken_front(front));
         imp.suspended_icon.set_visible(suspended);
         // Rows are recycled, so this is set on every bind. The `row.*`

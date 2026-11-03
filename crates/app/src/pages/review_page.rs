@@ -124,6 +124,11 @@ mod imp {
         /// Whether there was nothing to study when the session began: the
         /// summary then says so instead of "Session Complete".
         pub started_empty: Cell<bool>,
+        /// Decks archived while this tag's session was open
+        /// (`super::ReviewPage::leave_deck`): their cards are never shown
+        /// again, whatever brings them back (an Undo of an answer, of a
+        /// Suspend, a Delete or a Move).
+        pub left_decks: RefCell<std::collections::HashSet<String>>,
         pub session: RefCell<Option<Session>>,
         /// The card on screen.
         pub current: RefCell<Option<String>>,
@@ -537,6 +542,7 @@ impl ReviewPage {
         let (Some(state), Some(Studied::Tag { .. })) = (imp.state.get(), imp.studied.get()) else {
             return;
         };
+        imp.left_decks.borrow_mut().insert(deck_id.to_owned());
         let cards = match state.list_cards(deck_id) {
             Ok(cards) => cards,
             Err(err) => {
@@ -694,8 +700,9 @@ impl ReviewPage {
                 }
             };
             // Suspended since the session began (another window, or an Undo
-            // of an answer that brought it back): not studied, not counted.
-            if card.suspended {
+            // of an answer that brought it back), or of a deck archived
+            // since (ADR 0069): not studied, not counted.
+            if card.suspended || imp.left_decks.borrow().contains(&card.deck_id) {
                 self.skip_in_session(&id);
                 continue;
             }
@@ -1232,6 +1239,14 @@ impl ReviewPage {
     /// that is due, still goes first), and the summary gives way to it.
     fn put_back(&self, id: &str) {
         let imp = self.imp();
+        // A card of a deck archived since does not come back (ADR 0069).
+        if let Some(state) = imp.state.get()
+            && state
+                .card(id)
+                .is_ok_and(|card| imp.left_decks.borrow().contains(&card.deck_id))
+        {
+            return;
+        }
         if let Some(session) = imp.session.borrow_mut().as_mut() {
             session.put_back(id);
         }
@@ -3048,6 +3063,53 @@ mod tests {
             assert!(before.is_some());
             deck_page.leave_deck(&c.id);
             assert_eq!(current(&deck_page), before);
+        });
+    }
+
+    /// After its deck is archived, a card does not come back into a tag's
+    /// session by an Undo of its answer (the log is undone, the card is not
+    /// shown) nor by the Undo of a Suspend, a Delete or a Move
+    /// (`put_back`), ADR 0069.
+    #[test]
+    fn an_undo_never_brings_back_a_card_of_a_deck_archived_since() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state) = crate::testing::temporary_state();
+            let mut by_deck = std::collections::HashMap::new();
+            for name in ["A", "B"] {
+                let deck = state.create_deck(name).unwrap();
+                let cards: Vec<String> = (0..2)
+                    .map(|i| due_card(&state, &deck.id, &format!("{name}{i}"), &["t"]))
+                    .collect();
+                by_deck.insert(deck.id, cards);
+            }
+            let page = ReviewPage::for_tag(
+                state.clone(),
+                tag_named(&state, "t"),
+                StartedFrom::AllCards,
+                |_| {},
+            )
+            .unwrap();
+            let first = current(&page).unwrap();
+            let deck = state.card(&first).unwrap().deck_id;
+            pass(&page);
+            state.archive_deck(&deck).unwrap();
+            page.leave_deck(&deck);
+            let archived = &by_deck[&deck];
+            // The Undo of the answer: written to the log, not shown again.
+            page.undo();
+            assert_eq!(undo_entries(&state, &first), 1);
+            assert!(current(&page).is_none_or(|c| !archived.contains(&c)));
+            // The Undo of a removal puts the card back: not this one.
+            let other = archived.iter().find(|c| **c != first).unwrap();
+            page.put_back(other);
+            let mut shown = Vec::new();
+            while let Some(id) = current(&page) {
+                assert!(shown.len() < 10, "the session does not end");
+                assert!(!archived.contains(&id), "{id} of the archived deck");
+                shown.push(id);
+                pass(&page);
+            }
+            assert_eq!(shown.len(), 2, "the other deck's cards");
         });
     }
 

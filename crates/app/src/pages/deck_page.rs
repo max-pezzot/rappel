@@ -91,6 +91,11 @@ mod imp {
         pub empty_add_button: TemplateChild<gtk::Button>,
         #[template_child]
         pub deck_menu: TemplateChild<gio::MenuModel>,
+        #[template_child]
+        pub deck_menu_button: TemplateChild<gtk::MenuButton>,
+        /// The cards changed since `tag_section` was filled: it is filled
+        /// again when the Deck Menu opens, not on every change.
+        pub tag_menu_stale: Cell<bool>,
         /// The Deck Menu's section with the "Study Cards Tagged" submenu
         /// of the deck's tags (ADR 0069), empty while no card has a tag.
         pub tag_section: OnceCell<gio::Menu>,
@@ -195,6 +200,18 @@ mod imp {
             }
             crate::ui::init_once(&self.tag_section, section);
             let page = self.obj();
+            // `GtkMenuButton:active` turns on as the menu opens; the
+            // popover follows its model's changes (`GtkPopoverMenu`), so
+            // filling the section then shows the tags of now.
+            self.deck_menu_button.connect_active_notify(glib::clone!(
+                #[weak]
+                page,
+                move |button| {
+                    if button.is_active() {
+                        page.update_tag_menu();
+                    }
+                }
+            ));
             // Back from studying: what is left to study changed, and so
             // may which cards are new. The rows are refreshed before the
             // focus is set, so it lands on a row that stays.
@@ -277,7 +294,9 @@ impl DeckPage {
             move |_, _, _, _| {
                 page.update_empty_state();
                 page.update_study();
-                page.update_tag_menu();
+                // Read the tags when the Deck Menu opens: a change here
+                // can be one of thousands of cards (ADR 0069).
+                page.imp().tag_menu_stale.set(true);
                 // Select follows whether there is a card; an emptied list
                 // ends selection mode.
                 page.selection().list_changed();
@@ -308,7 +327,7 @@ impl DeckPage {
         init_once(&imp.cards, store);
         page.update_empty_state();
         page.update_study();
-        page.update_tag_menu();
+        imp.tag_menu_stale.set(true);
         page.update_can_move();
         page.selection().list_changed();
         Ok(page)
@@ -374,9 +393,13 @@ impl DeckPage {
     /// the deck's cards (`card_row::text::deck_tag_menu`), each studying
     /// its tag (`deck.study-tag`); past the cap, the last entry opens All
     /// Cards (`win.search`, filtered to this deck), where every tag is in
-    /// the filter. Run after every change to the list.
+    /// the filter. Does nothing unless the cards changed since
+    /// (`tag_menu_stale`): run when the Deck Menu opens.
     fn update_tag_menu(&self) {
         let imp = self.imp();
+        if !imp.tag_menu_stale.replace(false) {
+            return;
+        }
         let (Some(section), Some(store)) = (imp.tag_section.get(), imp.cards.get()) else {
             return;
         };
@@ -1881,13 +1904,20 @@ mod tests {
                 menu.item_link(1, "section"),
                 Some(section.clone().upcast::<gio::MenuModel>())
             );
+            page.update_tag_menu();
             assert_eq!(section.n_items(), 0, "no tag yet");
             let deck = page.deck_id().unwrap();
             let tagged = state
                 .add_card_with_tags(&deck, "q", "a", &["zeta".to_owned(), "alpha".to_owned()])
                 .unwrap();
             page.show_saved(Saved::Added(tagged.clone()));
+            // Filled when the menu opens, not at the change.
+            assert_eq!(section.n_items(), 0);
+            let window = gtk::Window::builder().child(&page).build();
+            window.present();
+            page.imp().deck_menu_button.set_active(true);
             assert_eq!(section.n_items(), 1);
+            page.imp().deck_menu_button.set_active(false);
             let submenu = section.item_link(0, "submenu").unwrap();
             let entry = |i: i32, key: &str| {
                 submenu
@@ -1903,7 +1933,11 @@ mod tests {
             assert_eq!(entry(0, "target"), alpha.id);
             // The card goes: so does the submenu.
             page.delete(&tagged.card.id);
+            page.update_tag_menu();
             assert_eq!(section.n_items(), 0);
+            // Unchanged since: opening again reads nothing.
+            assert!(!page.imp().tag_menu_stale.get());
+            window.destroy();
             assert_eq!(ids.len(), 2);
         });
     }
