@@ -74,8 +74,6 @@ mod imp {
         #[template_child]
         pub archived_filter: TemplateChild<gtk::DropDown>,
         #[template_child]
-        pub filter_grid: TemplateChild<gtk::Grid>,
-        #[template_child]
         pub filter_bar: TemplateChild<adw::Clamp>,
         #[template_child]
         pub content_stack: TemplateChild<gtk::Stack>,
@@ -230,6 +228,7 @@ impl BrowserPage {
                 Parts {
                     own_header: imp.header.get().upcast(),
                     select_button: imp.select_button.get(),
+                    narrow_select_button: None,
                     header: imp.selection_header.get(),
                     bar: imp.selection_bar.get(),
                     list: imp.card_list.get(),
@@ -286,27 +285,6 @@ impl BrowserPage {
         }
     }
 
-    /// Puts the archived drop-down beside the other filters, or under them
-    /// on a phone (`text::filter_layout`). A child's place in a grid is a
-    /// property of its layout child, which no breakpoint setter reaches,
-    /// hence the code.
-    fn place_archived_filter(&self) {
-        let imp = self.imp();
-        let layout = text::filter_layout(self.compact(), imp.archived_filter.get_visible());
-        let grid = &imp.filter_grid;
-        grid.set_column_homogeneous(layout.homogeneous);
-        let (column, row, width) = if layout.archived_below {
-            (0, 1, 3)
-        } else {
-            (3, 0, 1)
-        };
-        let filter = imp.archived_filter.get();
-        if grid.query_child(&filter) != (column, row, width, 1) {
-            grid.remove(&filter);
-            grid.attach(&filter, column, row, width, 1);
-        }
-    }
-
     /// Whether the cards of archived decks are listed.
     fn archived_shown(&self) -> bool {
         let filter = &self.imp().archived_filter;
@@ -323,7 +301,6 @@ impl BrowserPage {
                 self,
                 move |compact| {
                     page.set_compact(compact);
-                    page.place_archived_filter();
                 }
             ),
         );
@@ -560,7 +537,6 @@ impl BrowserPage {
 
         imp.quiet.set(true);
         imp.archived_filter.set_visible(any_archived);
-        self.place_archived_filter();
         let listed = text::filter_decks(&every_deck, show_archived);
         dropdown::set_labels(
             &imp.deck_filter,
@@ -1680,6 +1656,58 @@ mod tests {
             entry.type_text("later");
             dialog.emit_by_name::<()>("response", &[&"cancel"]);
             assert_eq!(names(&ids[2]), ["algebra"]);
+            window.destroy();
+        });
+    }
+
+    /// The on-screen keyboard shrinks the window (ADR 0058): the dialog's
+    /// sheet takes the focus off the text of Add Tags (libadwaita 1.10 at
+    /// 360 × 330), which used to turn the typed name into a pill. The name
+    /// stays in the text, which has the focus again (ADR 0071). Fails
+    /// without `keys::AfterLeave::Refocus`, checked by making it `Split`.
+    #[test]
+    fn shrinking_the_window_keeps_what_is_typed_in_add_tags() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state, ids, _) = state_with_cards();
+            let page = page_over(&state, None);
+            let window = adw::Window::new();
+            window.set_default_size(360, 640);
+            window.set_content(Some(&page));
+            window.present();
+            crate::testing::settle_until(|| window.height() >= 600, Duration::from_secs(5));
+            page.selection().set_active(true);
+            page.selection().toggle(&ids[0]);
+            let dialog = page.selection().add_tags().unwrap();
+            let entry = dialog
+                .extra_child()
+                .and_downcast::<crate::widgets::TagEntry>()
+                .unwrap();
+            let text = entry.text();
+            assert!(
+                crate::testing::settle_until(|| text.has_focus(), Duration::from_secs(5)),
+                "the text has the focus when the dialog opens"
+            );
+            entry.set_tags(&["kept".to_owned()]);
+            // Typed without a comma, as the keys would leave it.
+            let mut at = text.position();
+            text.insert_text("zebra", &mut at);
+            text.set_position(at);
+            assert_eq!(entry.typed(), "zebra");
+
+            window.set_default_size(360, 330);
+            assert!(
+                crate::testing::settle_until(|| window.height() <= 330, Duration::from_secs(5)),
+                "the window got shorter ({} px)",
+                window.height()
+            );
+            // Let the leave of the focus (decided in an idle) happen.
+            crate::testing::settle_until(|| false, Duration::from_millis(500));
+            assert_eq!(entry.pill_names(), ["kept"], "no pill was made");
+            assert_eq!(entry.typed(), "zebra", "the name is still in the text");
+            assert!(text.has_focus(), "and the text has the focus");
+            assert_eq!(text.position(), 5, "with the cursor after it");
+            assert_eq!(text.selection_bounds(), None, "and nothing selected");
+            dialog.emit_by_name::<()>("response", &[&"cancel"]);
             window.destroy();
         });
     }

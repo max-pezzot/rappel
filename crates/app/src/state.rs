@@ -14,7 +14,8 @@ use rappel_core::domain::{
     Tag, TaggedCard,
 };
 use rappel_core::interchange::{
-    AnkiPlan, AnkiReport, ExportSummary, FileKind, ImportPlan, ImportReport, file_kind,
+    AnkiPlan, AnkiReport, ExportOptions, ExportSummary, FileKind, ImportPlan, ImportReport,
+    MediaTotals, file_kind,
 };
 use rappel_core::media::{CleanedUp, MediaRef, TrashTidied, UnusedMedia};
 use rappel_core::scheduling::{StudyInput, StudyScope};
@@ -163,15 +164,29 @@ impl AppState {
     /// [`Store::export_to`]). Blocking; runs on a worker thread, on its own
     /// connection ([`Store::open_concurrent`], ADR 0018), so the window's
     /// store stays on the main thread.
-    pub fn export_on_worker(data_dir: &Path, path: &Path) -> rappel_core::Result<ExportSummary> {
-        Store::open_concurrent(data_dir)?.export_to(path)
+    pub fn export_on_worker(
+        data_dir: &Path,
+        path: &Path,
+        include_media: bool,
+    ) -> rappel_core::Result<ExportSummary> {
+        Store::open_concurrent(data_dir)?.export_to_with(path, ExportOptions { include_media })
+    }
+
+    /// The media files and their sizes together (see
+    /// [`Store::media_totals`]): one query, asked before an export.
+    pub fn media_totals(&self) -> rappel_core::Result<MediaTotals> {
+        self.0.store.borrow().media_totals()
     }
 
     /// Checks the `.rappel` file `path` against the database in `data_dir`
-    /// (see [`Store::plan_import`]). Blocking; on its own connection like
-    /// [`Self::export_on_worker`].
-    pub fn plan_import_on_worker(data_dir: &Path, path: &Path) -> rappel_core::Result<ImportPlan> {
-        Store::open_concurrent(data_dir)?.plan_import(path)
+    /// (see [`Store::plan_import_cancellable`]); stops when `cancel` is
+    /// set. Blocking; on its own connection like [`Self::export_on_worker`].
+    pub fn plan_import_on_worker(
+        data_dir: &Path,
+        path: &Path,
+        cancel: &AtomicBool,
+    ) -> rappel_core::Result<ImportPlan> {
+        Store::open_concurrent(data_dir)?.plan_import_cancellable(path, cancel)
     }
 
     /// Whether `path` is a Rappel export or an Anki package, by its name,

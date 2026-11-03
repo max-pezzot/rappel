@@ -55,7 +55,7 @@ use crate::ui::text::{
 use crate::ui::tile::{Tile, set_tile};
 use crate::ui::toast::{info_toast, log_failure, show_error, show_toast_from, undo_toast};
 use crate::ui::undo::{self, UndoFailure};
-use crate::ui::{breakpoint, init_once, nav};
+use crate::ui::{breakpoint, init_once, keys, nav};
 use crate::window::RappelWindow;
 
 type OnSaved = dyn Fn(Saved);
@@ -84,6 +84,8 @@ mod imp {
         pub banner: TemplateChild<adw::Banner>,
         #[template_child]
         pub edit_button: TemplateChild<gtk::Button>,
+        #[template_child]
+        pub undo_button: TemplateChild<gtk::Button>,
         #[template_child]
         pub card_menu_button: TemplateChild<gtk::MenuButton>,
         #[template_child]
@@ -170,6 +172,11 @@ mod imp {
         pub asking: Cell<bool>,
         /// Another deck exists to move the card on screen to.
         pub can_move: Cell<bool>,
+        /// A window under [`EDIT_IN_MENU_WIDTH`]: Edit Card is only in the
+        /// Card Menu, so the title has the header's room (ADR 0071).
+        pub narrow: Cell<bool>,
+        /// A card is on screen (what shows the Edit and Card Menu buttons).
+        pub editable: Cell<bool>,
         /// Told about every save made from this page's editor.
         pub on_saved: OnceCell<Callback<OnSaved>>,
         /// Fades the back in at the reveal (`super::reveal_step`).
@@ -218,6 +225,7 @@ mod imp {
             page.setup_key_tooltips();
             page.setup_reveal_animation();
             page.setup_short_summary();
+            page.follow_width();
             // A grab before the push does nothing, and the navigation view
             // then focuses the first widget: the Back button, which would
             // take Space and Enter. So park the focus once on screen.
@@ -393,21 +401,11 @@ pub(crate) fn key_triggers() -> impl Iterator<Item = &'static str> {
     KEYS.iter().map(|(trigger, _)| *trigger)
 }
 
-/// The tooltip of a button that a key also presses: "Pass (2)". `name` is
-/// the button's name without its mnemonic, `key` the key as the user sees
-/// it ("Space").
-fn key_tooltip(name: &str, key: &str) -> String {
-    // Translators: the tooltip of a button that a key also presses.
-    // {name} is the button ("Pass"), {key} the key ("2").
-    i18n::fill(&gettext("{name} ({key})"), &[("name", name), ("key", key)])
-}
-
 /// How GTK labels the first of [`KEYS`] bound to `key` ("Space", "2"), the
 /// way it shows an accelerator in a menu, in the user's language.
 fn key_label(key: Key) -> Option<String> {
     let (trigger, _) = KEYS.iter().find(|(_, bound)| *bound == key)?;
-    let (keyval, modifiers) = gtk::accelerator_parse(*trigger)?;
-    Some(gtk::accelerator_get_label(keyval, modifiers).to_string())
+    keys::label(trigger)
 }
 
 /// What a key makes the page do.
@@ -674,9 +672,11 @@ impl ReviewPage {
             (&*imp.reveal_button, gettext("Show Answer"), Key::Space),
             (&*imp.fail_button, gettext("Fail"), Key::Fail),
             (&*imp.pass_button, gettext("Pass"), Key::Pass),
+            (&*imp.undo_button, gettext("Undo Last Answer"), Key::Undo),
+            (&*imp.edit_button, gettext("Edit Card"), Key::Edit),
         ] {
             if let Some(label) = key_label(key) {
-                button.set_tooltip_text(Some(&key_tooltip(&name, &label)));
+                button.set_tooltip_text(Some(&keys::tooltip(&name, &label)));
             }
         }
     }
@@ -816,6 +816,33 @@ impl ReviewPage {
         let animation = adw::TimedAnimation::new(&*imp.card_area, 0.0, 1.0, REVEAL_MS, target);
         animation.set_easing(adw::Easing::EaseOutCubic);
         init_once(&imp.reveal_animation, animation);
+    }
+
+    /// Keeps Edit Card out of the header on a narrow window.
+    fn follow_width(&self) {
+        breakpoint::follow_window_width(
+            self,
+            EDIT_IN_MENU_WIDTH,
+            glib::clone!(
+                #[weak(rename_to = page)]
+                self,
+                move |narrow| {
+                    page.imp().narrow.set(narrow);
+                    page.show_header_buttons();
+                }
+            ),
+        );
+    }
+
+    /// The header's Edit Card and Card Menu buttons: with a card on
+    /// screen; Edit Card only while the window is not narrow (see
+    /// [`edit_button_shown`]).
+    fn show_header_buttons(&self) {
+        let imp = self.imp();
+        let (editable, narrow) = (imp.editable.get(), imp.narrow.get());
+        imp.edit_button
+            .set_visible(edit_button_shown(editable, narrow));
+        imp.card_menu_button.set_visible(editable);
     }
 
     /// Makes the summary `compact` (libadwaita's style class for a status
@@ -1361,8 +1388,8 @@ impl ReviewPage {
         self.action_set_enabled("review.suspend", editable);
         self.action_set_enabled("review.move", editable && self.imp().can_move.get());
         self.action_set_enabled("review.delete", editable);
-        self.imp().edit_button.set_visible(editable);
-        self.imp().card_menu_button.set_visible(editable);
+        self.imp().editable.set(editable);
+        self.show_header_buttons();
         // The summary has its own button; the bar goes, and the summary
         // gets its room.
         self.imp().bottom_bar.set_visible(name.is_some());
@@ -1710,6 +1737,18 @@ fn cut_note() -> String {
     gettext("This card is long: only its start is shown. Edit it to see all of it.")
 }
 
+/// The window width under which Edit Card leaves the header for the Card
+/// Menu: at 360 px with minimise and maximise shown, the title and the
+/// subtitle ("30 restantes") of a session are cut beside Back, Undo, Edit,
+/// the menu and the window buttons.
+const EDIT_IN_MENU_WIDTH: i32 = 400;
+
+/// Whether the header shows its Edit Card button: with a card on screen
+/// (`editable`), unless the window is `narrow`, where the Card Menu has it.
+fn edit_button_shown(editable: bool, narrow: bool) -> bool {
+    editable && !narrow
+}
+
 /// The subtitle while studying: "12 left", "1,234 left". It counts the
 /// card on screen and step cards that will come back, so it can go up
 /// after a Fail.
@@ -1999,6 +2038,15 @@ mod tests {
 
     use super::*;
     use crate::render::MAX_SHOWN_BYTES;
+
+    #[test]
+    fn edit_card_leaves_the_header_of_a_narrow_window() {
+        assert!(edit_button_shown(true, false));
+        assert!(!edit_button_shown(true, true));
+        // No card on screen (the summary): no button at all.
+        assert!(!edit_button_shown(false, false));
+        assert!(!edit_button_shown(false, true));
+    }
 
     #[test]
     fn the_cut_note_follows_the_sides_on_screen() {
@@ -2849,15 +2897,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_tooltip_names_the_button_and_its_key() {
-        assert_eq!(key_tooltip("Pass", "2"), "Pass (2)");
-        assert_eq!(key_tooltip("Fail", "1"), "Fail (1)");
-        assert_eq!(key_tooltip("Show Answer", "Space"), "Show Answer (Space)");
-        // A name or a key with braces is not read as a placeholder.
-        assert_eq!(key_tooltip("{key}", "{name}"), "{key} ({name})");
-    }
-
     /// The buttons' tooltips name the keys the page binds to the same act
     /// (#105), and no hint is left on the page.
     #[test]
@@ -2874,6 +2913,13 @@ mod tests {
                 ),
                 (&*imp.fail_button, "Fail (1)", "1", Act::Grade(Grade::Fail)),
                 (&*imp.pass_button, "Pass (2)", "2", Act::Grade(Grade::Pass)),
+                (
+                    &*imp.undo_button,
+                    "Undo Last Answer (Ctrl+Z)",
+                    "<Control>z",
+                    Act::Undo,
+                ),
+                (&*imp.edit_button, "Edit Card (E)", "e", Act::Edit),
             ] {
                 assert_eq!(button.tooltip_text().as_deref(), Some(tooltip));
                 let (_, bound) = KEYS.iter().find(|(t, _)| *t == trigger).unwrap();
@@ -3452,6 +3498,7 @@ mod tests {
     /// The action each key's menu item runs, for the hints' test.
     fn menu_action(key: Key) -> Option<&'static str> {
         match key {
+            Key::Edit => Some("review.edit"),
             Key::Info => Some("review.card-info"),
             Key::Suspend => Some("review.suspend"),
             Key::Delete => Some("review.delete"),
@@ -3485,7 +3532,7 @@ mod tests {
                 .expect("the card menu button has its menu");
             let mut items = Vec::new();
             menu_items(&menu, &mut items);
-            assert_eq!(items.len(), 4);
+            assert_eq!(items.len(), 5);
             for (action, accel) in items {
                 // Move to Deck… has no key.
                 if action == "review.move" {
@@ -3526,6 +3573,7 @@ mod tests {
                 [
                     None,
                     Some("Delete".to_owned()),
+                    Some("e".to_owned()),
                     Some("i".to_owned()),
                     Some("s".to_owned())
                 ]

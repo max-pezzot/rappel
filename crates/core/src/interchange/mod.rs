@@ -35,7 +35,13 @@ pub use anki::{
     ANKI_EXTENSIONS, AnkiFormat, AnkiPlan, AnkiProblem, AnkiReport, AnkiSummary, FileKind, Skip,
     Skipped, file_kind, remove_stale_anki_temps,
 };
+pub use export::{MediaOverLimit, MediaTotals, export_size_at_least, media_too_large_for_import};
 pub(crate) use format::FORMAT_VERSION;
+
+/// The largest `.rappel` file an import reads: 2 GiB (ADR 0053). An export
+/// whose media would make it larger is offered without them (ADR 0071), so
+/// the export and the import share this number.
+pub const MAX_ARCHIVE_BYTES: u64 = 2 << 30;
 
 /// File name extension of an export, without the dot.
 pub const FILE_EXTENSION: &str = "rappel";
@@ -47,6 +53,25 @@ pub const FILE_EXTENSION: &str = "rappel";
 /// stay in the file chooser so the user gets that message instead of not
 /// seeing the file. Import reads the content, never the extension.
 pub const IMPORT_EXTENSIONS: [&str; 2] = [FILE_EXTENSION, "cards"];
+
+/// What an export includes (ADR 0071).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExportOptions {
+    /// The media files and their records. Without them the file is as
+    /// valid as ever (format version 2: an empty `media` list and no
+    /// `media/<sha256>.<ext>` entry); a card's `media:` references name
+    /// files that are not in it, which an import allows (SPEC §4.1).
+    pub include_media: bool,
+}
+
+impl Default for ExportOptions {
+    /// Everything.
+    fn default() -> Self {
+        Self {
+            include_media: true,
+        }
+    }
+}
 
 /// What an export wrote.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,6 +86,9 @@ pub struct ExportSummary {
     pub review_events: usize,
     /// Media files written.
     pub media: usize,
+    /// Media files the database lists that were left out because the export
+    /// was asked to be without media ([`ExportOptions::include_media`]).
+    pub media_left_out: usize,
     /// Media files the database lists but that are missing from the media
     /// folder or damaged (not the size, kind or hash recorded): left out of
     /// the export, with their rows, so the file stays importable. Cards
@@ -511,7 +539,7 @@ pub(crate) struct Limits {
 impl Limits {
     /// The limits used by [`Store::plan_import`](crate::storage::Store::plan_import).
     pub(crate) const DEFAULT: Self = Self {
-        archive: 2 << 30,
+        archive: MAX_ARCHIVE_BYTES,
         entries: 100_000,
         // 100,000 central records with media names (about 122 bytes each)
         // fit with room to spare.

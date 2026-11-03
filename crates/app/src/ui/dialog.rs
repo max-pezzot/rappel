@@ -162,6 +162,12 @@ pub const DELETE_CARD: Alert = Alert {
     id: "delete_card_dialog",
 };
 
+/// "Export Without Media?" of Export… (ADR 0071; its body is set in code).
+pub const EXPORT_WITHOUT_MEDIA: Alert = Alert {
+    file: "export_media_dialog.ui",
+    id: "export_media_dialog",
+};
+
 #[cfg(test)]
 mod focus_tests {
     use std::time::Duration;
@@ -182,6 +188,7 @@ mod focus_tests {
                 for alert in [
                     CLEAN_UP_MEDIA,
                     DELETE_CARD,
+                    EXPORT_WITHOUT_MEDIA,
                     START_FRESH,
                     DISCARD_CHANGES,
                     RESTORE_BACKUP,

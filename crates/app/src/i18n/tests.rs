@@ -1295,7 +1295,6 @@ const NOT_TOASTS: &[&str] = &[
     "The data folder could not be used.",
     "This adds {count} media file.",
     "This puts {count} tag on cards.",
-    "Undo Last Answer (Ctrl+Z)",
     "Unused files could not be counted",
     "Update Rappel to Continue",
     "While tags are suggested",

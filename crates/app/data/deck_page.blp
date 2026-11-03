@@ -33,6 +33,7 @@ template $RappelDeckPage: Adw.NavigationPage {
       // the bar loses its mnemonic as the header button comes back.
       setters {
         header_study_button.visible: false;
+        select_slot.visible: false;
         bar_study_button.label: _("_Study");
         bar_study_button.use-underline: true;
       }
@@ -70,15 +71,20 @@ template $RappelDeckPage: Adw.NavigationPage {
         }
 
         // Selection mode (HIG, "Selection mode"), as on All Cards; disabled
-        // while the deck has no card.
+        // while the deck has no card. On a narrow window it moves to the
+        // bottom bar, so the title has the room (ADR 0071): the slot is what
+        // the breakpoint hides, as selection mode shows and hides the button
+        // itself.
         [end]
-        Gtk.Button select_button {
-          icon-name: "selection-mode-symbolic";
-          action-name: "selection.choose";
-          tooltip-text: _("Select Cards");
+        Gtk.Box select_slot {
+          Gtk.Button select_button {
+            icon-name: "selection-mode-symbolic";
+            action-name: "selection.choose";
+            tooltip-text: _("Select Cards");
 
-          accessibility {
-            label: _("Select Cards");
+            accessibility {
+              label: _("Select Cards");
+            }
           }
         }
 
@@ -175,23 +181,59 @@ template $RappelDeckPage: Adw.NavigationPage {
         }
       };
 
-      // The narrow window's Study button (see the breakpoint above). Shown
-      // by pages/deck_page.rs only while the window is narrow and the deck
-      // has cards (`study_bar_shown`): an empty deck's status page has its
-      // own action and stands alone.
+      // The narrow window's Study and Select Cards buttons (see the
+      // breakpoint above). Shown by pages/deck_page.rs only while the
+      // window is narrow and the deck has cards (`study_bar_shown`): an
+      // empty deck's status page has its own action and stands alone.
       [bottom]
       Gtk.ActionBar study_bar {
         revealed: false;
 
-        [center]
-        Gtk.Button bar_study_button {
-          label: _("Study");
-          action-name: "deck.study";
+        // Select Cards, from the header (see `select_slot`): shown only
+        // with the bar, so only while the window is narrow.
+        [start]
+        Gtk.Button bar_select_button {
+          icon-name: "selection-mode-symbolic";
+          action-name: "selection.choose";
+          tooltip-text: _("Select Cards");
 
-          styles [
-            "pill",
-            "suggested-action",
-          ]
+          accessibility {
+            label: _("Select Cards");
+          }
+        }
+
+        // Study, with the whole line of what there is to study under it,
+        // which the header's subtitle shortens on a phone (set in
+        // pages/deck_page.rs). Under the pill, not beside it: beside it the
+        // French line had too little room at 360 px and was cut at the
+        // window's edge; centred under it, it has the bar's whole width
+        // and wraps only if even that is too narrow (ADR 0071).
+        [center]
+        Gtk.Box {
+          orientation: vertical;
+          spacing: 4;
+
+          Gtk.Button bar_study_button {
+            label: _("Study");
+            action-name: "deck.study";
+            halign: center;
+
+            styles [
+              "pill",
+              "suggested-action",
+            ]
+          }
+
+          Gtk.Label bar_counts {
+            wrap: true;
+            justify: center;
+            xalign: 0.5;
+
+            styles [
+              "caption",
+              "dimmed",
+            ]
+          }
         }
       }
 

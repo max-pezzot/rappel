@@ -75,14 +75,13 @@ template $RappelBrowserPage: Adw.NavigationPage {
         visible: false;
       }
 
-      // Deck, tag and state, side by side and as wide as the list under
-      // them; on a phone they share the width and their texts end in "…"
-      // (ui::dropdown::shrinkable), so they never take more than one line.
-      // While a deck is archived a fourth drop-down shows them or not
-      // (ADR 0068): beside the others where there is room, each as wide as
-      // its text, on a line of its own on a phone (pages/browser_page.rs,
-      // `text::filter_layout`, moves it). Hidden while there is no card at
-      // all (pages/browser_page.rs).
+      // Deck, tag, state and (while a deck is archived, ADR 0068) archived,
+      // in a wrap box: each as wide as its text, and a line of their own
+      // when they do not fit side by side, so a label is never cut in any
+      // language (ADR 0071; before, three equal columns cut "Tous les
+      // paquets" at 360 px). A single entry wider than the line (a long
+      // deck name) still ends in "…" (ui::dropdown::shrinkable). Hidden
+      // while there is no card at all (pages/browser_page.rs).
       [top]
       Adw.Clamp filter_bar {
         maximum-size: 600;
@@ -94,10 +93,11 @@ template $RappelBrowserPage: Adw.NavigationPage {
           margin-start: 12;
           margin-end: 12;
 
-          Gtk.Grid filter_grid {
-            column-spacing: 6;
-            row-spacing: 6;
-            column-homogeneous: true;
+          Adw.WrapBox filter_box {
+            child-spacing: 6;
+            line-spacing: 6;
+            justify: fill;
+            justify-last-line: true;
             hexpand: true;
 
             Gtk.DropDown deck_filter {
@@ -108,11 +108,6 @@ template $RappelBrowserPage: Adw.NavigationPage {
               accessibility {
                 label: _("Deck");
               }
-
-              layout {
-                column: 0;
-                row: 0;
-              }
             }
 
             Gtk.DropDown tag_filter {
@@ -122,11 +117,6 @@ template $RappelBrowserPage: Adw.NavigationPage {
 
               accessibility {
                 label: _("Tag");
-              }
-
-              layout {
-                column: 1;
-                row: 0;
               }
             }
 
@@ -147,11 +137,6 @@ template $RappelBrowserPage: Adw.NavigationPage {
               accessibility {
                 label: _("State");
               }
-
-              layout {
-                column: 2;
-                row: 0;
-              }
             }
 
             // Its two entries ("Archived Hidden", "Archived Shown") are set
@@ -163,11 +148,6 @@ template $RappelBrowserPage: Adw.NavigationPage {
 
               accessibility {
                 label: _("Archived Decks");
-              }
-
-              layout {
-                column: 3;
-                row: 0;
               }
             }
           }

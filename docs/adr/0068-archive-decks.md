@@ -49,3 +49,7 @@ A deck the user is done with for now (last term's course, a finished language tr
 - A user who archives every deck still sees Create Deck and the way back to them, and All Cards says why it lists nothing.
 - The deck page has no Unarchive: an archived deck has no page. Unarchive is on the Archived Decks page only.
 - An archived deck's own statistics are not reachable from the UI; core keeps them whole for when it is unarchived.
+
+## Amended in phase 3a (slice 7)
+
+The filter row's `GtkGrid` (the fourth drop-down on a line of its own on a phone, columns equal or not) is replaced by an `AdwWrapBox` (ADR 0071): French "Tous les paquets" was cut at 360 px in the three equal columns. `text::filter_layout` and `FilterLayout` are gone; the rest of this ADR (what the fourth drop-down is, when it shows, that it is a view setting) stands.

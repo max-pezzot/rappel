@@ -400,6 +400,17 @@ pub enum Error {
     #[error("cannot write the export: {0}")]
     ExportFailed(#[source] Box<dyn std::error::Error + Send + Sync>),
 
+    /// The export came out larger than an import reads
+    /// ([`MAX_ARCHIVE_BYTES`](crate::interchange::MAX_ARCHIVE_BYTES)), so it
+    /// could not be imported again. The file was not kept (ADR 0071).
+    #[error("the export is {bytes} bytes, more than the {limit} bytes an import reads")]
+    ExportTooLarge {
+        /// The size it came to.
+        bytes: u64,
+        /// The most an import reads.
+        limit: u64,
+    },
+
     /// The file is not a valid Rappel export (ADR 0017). Nothing was
     /// written.
     #[error("cannot import this file: {0}")]

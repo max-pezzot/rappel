@@ -91,6 +91,10 @@ pub struct Parts {
     pub own_header: gtk::Widget,
     /// The page's Select button (`selection.choose`), in its own header.
     pub select_button: gtk::Button,
+    /// Where Select goes when the page's header has no room for it (the
+    /// deck page's bottom bar on a phone), if the page has such a place.
+    /// The focus goes there when the header's button is not showing.
+    pub narrow_select_button: Option<gtk::Button>,
     pub header: SelectionHeader,
     pub bar: SelectionBar,
     pub list: gtk::ListView,
@@ -492,7 +496,12 @@ impl<P: SelectionPage, T: SelectableCard> CardSelection<P, T> {
             parts.bar.set_revealed(active);
             page.selection_mode_changed(active);
             if in_mode && !active {
-                parts.select_button.grab_focus();
+                // `is_visible` looks at the ancestors too: the button of a
+                // header whose slot a breakpoint hides cannot take it.
+                match &parts.narrow_select_button {
+                    Some(narrow) if !parts.select_button.is_visible() => narrow.grab_focus(),
+                    _ => parts.select_button.grab_focus(),
+                };
             }
             if in_own_header && active {
                 if page.list_shown() {
@@ -502,7 +511,9 @@ impl<P: SelectionPage, T: SelectableCard> CardSelection<P, T> {
                 }
             }
         }
-        parts.header.set_title(&text::selection_title(n));
+        parts
+            .header
+            .set_titles(&text::selection_title(n), &text::selection_title_tight(n));
         for name in ON_CHOSEN {
             self.set_enabled(name, n > 0);
         }

@@ -36,13 +36,14 @@ msgstr "_Restaurer"
 #: crates/app/data/clean_up_media_dialog.blp
 #: crates/app/data/deck_name_dialog.blp
 #: crates/app/data/delete_card_dialog.blp
+#: crates/app/data/export_media_dialog.blp
 #: crates/app/data/import_dialog.blp
 #: crates/app/data/merge_deck_dialog.blp
 #: crates/app/data/restore_dialog.blp
 #: crates/app/data/retention_dialog.blp
 #: crates/app/data/selection_header.blp
 #: crates/app/data/start_fresh_dialog.blp
-#: crates/app/src/transfer/anki.rs
+#: crates/app/src/transfer/progress.rs
 msgid "_Cancel"
 msgstr "_Annuler"
 
@@ -120,8 +121,8 @@ msgid "_Save"
 msgstr "_Enregistrer"
 
 #: crates/app/data/card_editor.blp
-msgid "Save (Ctrl+Enter)"
-msgstr "Enregistrer (Ctrl+Entrée)"
+msgid "Press Ctrl+Enter"
+msgstr "Appuyez sur Ctrl+Entrée"
 
 #: crates/app/data/card_editor.blp
 msgid "Front"
@@ -170,10 +171,6 @@ msgstr "Étiquettes"
 #: crates/app/data/card_editor.blp
 msgid "Press Enter or type a comma after each tag"
 msgstr "Appuyez sur Entrée ou tapez une virgule après chaque étiquette"
-
-#: crates/app/data/card_editor.blp
-msgid "to save"
-msgstr "pour enregistrer"
 
 #: crates/app/data/card_editor.blp
 msgid "Preview"
@@ -444,6 +441,14 @@ msgstr "_Continuer la modification"
 msgid "_Discard"
 msgstr "_Abandonner"
 
+#: crates/app/data/export_media_dialog.blp
+msgid "Export Without Media?"
+msgstr "Exporter sans les médias ?"
+
+#: crates/app/data/export_media_dialog.blp
+msgid "_Export Without Media"
+msgstr "_Exporter sans les médias"
+
 #: crates/app/data/import_dialog.blp
 msgid "_Import"
 msgstr "_Importer"
@@ -576,11 +581,8 @@ msgid "Study"
 msgstr "Étude"
 
 #: crates/app/data/review_page.blp
-msgid "Undo Last Answer (Ctrl+Z)"
-msgstr "Annuler la dernière réponse (Ctrl+Z)"
-
-#: crates/app/data/review_page.blp
 #: crates/app/data/shortcuts-dialog.blp
+#: crates/app/src/pages/review_page.rs
 msgid "Undo Last Answer"
 msgstr "Annuler la dernière réponse"
 
@@ -589,12 +591,9 @@ msgid "Card Menu"
 msgstr "Menu de la carte"
 
 #: crates/app/data/review_page.blp
-msgid "Edit Card (E)"
-msgstr "Modifier la carte (E)"
-
-#: crates/app/data/review_page.blp
 #: crates/app/data/shortcuts-dialog.blp
 #: crates/app/src/dialogs/card_editor/mod.rs
+#: crates/app/src/pages/review_page.rs
 msgid "Edit Card"
 msgstr "Modifier la carte"
 
@@ -645,6 +644,10 @@ msgstr "Réu_ssi"
 #: crates/app/data/review_page.blp
 msgid "Press 2 or Space"
 msgstr "Appuyez sur 2 ou Espace"
+
+#: crates/app/data/review_page.blp
+msgid "_Edit Card"
+msgstr "_Modifier la carte"
 
 #: crates/app/data/review_page.blp
 msgid "_Suspend Card"
@@ -785,6 +788,7 @@ msgid "Card Editor"
 msgstr "Éditeur de carte"
 
 #: crates/app/data/shortcuts-dialog.blp
+#: crates/app/src/dialogs/card_editor/mod.rs
 msgid "Save"
 msgstr "Enregistrer"
 
@@ -1693,11 +1697,6 @@ msgstr "La copie en attente n’a pas pu être vérifiée : {error}. Elle est 
 msgid "Finishing the restore failed: {error}"
 msgstr "Échec de la fin de restauration : {error}"
 
-#. Translators: the tooltip of a button that a key also presses. {name} is the button ("Pass"), {key} the key ("2").
-#: crates/app/src/pages/review_page.rs
-msgid "{name} ({key})"
-msgstr "{name} ({key})"
-
 #: crates/app/src/pages/review_page.rs
 msgctxt "page title"
 msgid "Practice"
@@ -2460,6 +2459,10 @@ msgid "The export stopped unexpectedly"
 msgstr "Export interrompu"
 
 #: crates/app/src/transfer/mod.rs
+msgid "The export could not start: its question could not be shown"
+msgstr "L’export n’a pas pu démarrer : sa question n’a pas pu être affichée"
+
+#: crates/app/src/transfer/mod.rs
 msgid "Rappel Exports"
 msgstr "Exports Rappel"
 
@@ -2500,9 +2503,48 @@ msgid_plural "Media files left out. Exported to “{name}”, without {count} me
 msgstr[0] "Fichier omis. Exporté dans « {name} », sans {count} fichier multimédia manquant ou abîmé"
 msgstr[1] "Fichiers omis. Exporté dans « {name} », sans {count} fichiers multimédias manquants ou abîmés"
 
+#. Translators: a toast: its first sentence is its title, the rest is behind Details. {name} is the file's name, {count} a number of media files (images, sounds).
+#: crates/app/src/transfer/text.rs
+msgid "Media left out. Exported to “{name}” without its {count} media file"
+msgid_plural "Media left out. Exported to “{name}” without its {count} media files"
+msgstr[0] "Médias exclus. Exporté dans « {name} » sans {count} fichier média"
+msgstr[1] "Médias exclus. Exporté dans « {name} » sans {count} fichiers médias"
+
+#. Translators: the start of a question's body. {size} is a size such as "2.4 GiB". An import reads at most 2 GiB from one file.
+#: crates/app/src/transfer/text.rs
+msgid "With its media files, the export would take at least {size}, more than the 2 GiB that Rappel reads from one file, so Rappel could not import it again."
+msgstr "Avec ses fichiers médias, l’export ferait au moins {size}, soit plus que les 2 Gio que Rappel lit dans un seul fichier : Rappel ne pourrait pas le réimporter."
+
+#. Translators: the start of a question's body. {count} is a number of media files (images, sounds), always very large.
+#: crates/app/src/transfer/text.rs
+msgid "The export would hold {count} media file, too many files for Rappel to read from one export, so Rappel could not import it again."
+msgid_plural "The export would hold {count} media files, too many files for Rappel to read from one export, so Rappel could not import it again."
+msgstr[0] "L’export contiendrait {count} fichier média, trop de fichiers pour que Rappel les lise dans un seul export : Rappel ne pourrait pas le réimporter."
+msgstr[1] "L’export contiendrait {count} fichiers médias, trop de fichiers pour que Rappel les lise dans un seul export : Rappel ne pourrait pas le réimporter."
+
+#. Translators: the start of a question's body. {size} is a size such as "2.4 GiB". An import reads at most 2 GiB from one file.
+#: crates/app/src/transfer/text.rs
+msgid "The export came to {size}, more than the 2 GiB that Rappel reads from one file, so Rappel could not import it again. It was not saved."
+msgstr "L’export a atteint {size}, soit plus que les 2 Gio que Rappel lit dans un seul fichier : Rappel ne pourrait pas le réimporter. Il n’a pas été enregistré."
+
+#. Translators: the end of the question's body, after why it is asked.
+#: crates/app/src/transfer/text.rs
+msgid "Export without the media instead? Decks, cards and their history are exported; the media files stay where they are, and cards keep their references to them."
+msgstr "Exporter plutôt sans les médias ? Les paquets, les cartes et leur historique sont exportés ; les fichiers médias restent où ils sont, et les cartes gardent leurs références à ces fichiers."
+
+#. Translators: a toast: what is before ":" is its title, the rest is behind Details. {size} is a size such as "2.4 GiB".
+#: crates/app/src/transfer/text.rs
+msgid "The export failed: even without its media it came to {size}, more than the 2 GiB that Rappel reads from one file. It was not saved."
+msgstr "L’export a échoué : même sans ses médias, il a atteint {size}, soit plus que les 2 Gio que Rappel lit dans un seul fichier. Il n’a pas été enregistré."
+
 #: crates/app/src/transfer/text.rs
 msgid "Early test version. This file was made by an early test version of Rappel and cannot be imported"
 msgstr "Ancienne version de test. Ce fichier a été créé par une ancienne version de test de Rappel et ne peut pas être importé"
+
+#. Translators: a toast with a Cancel button while an export file is checked before importing it; keep it short (it must fit a phone's width).
+#: crates/app/src/transfer/text.rs
+msgid "Checking the file…"
+msgstr "Vérification du fichier…"
 
 #: crates/app/src/transfer/text.rs
 msgid "File changed. It changed while it was being checked; import it again."
@@ -2670,6 +2712,17 @@ msgid "and {count} more"
 msgid_plural "and {count} more"
 msgstr[0] "et {count} autre"
 msgstr[1] "et {count} autres"
+
+#. Translators: the tooltip of a button that a key also presses. {name} is the button ("Pass"), {key} the key ("2").
+#: crates/app/src/ui/keys.rs
+msgid "{name} ({key})"
+msgstr "{name} ({key})"
+
+#. Translators: the Return key as a tooltip names it, after the modifiers: "Ctrl+Enter".
+#: crates/app/src/ui/keys.rs
+msgctxt "key name"
+msgid "Enter"
+msgstr "Entrée"
 
 #. Translators: the accessible name of a row's menu button; {name} is a deck's name or a card's front.
 #: crates/app/src/ui/rows.rs
@@ -3256,6 +3309,21 @@ msgstr "Voyez combien vous avez étudié et ce que vous retenez"
 #: data/io.github.rsmirke.Rappel.metainfo.xml.in
 msgid "Pictures on cards, on a phone"
 msgstr "Des images sur les cartes, sur un téléphone"
+
+#~ msgid "The media files add up to {size}, more than the 2 GiB that Rappel reads from one file. An export with them could not be imported again by Rappel. Export without them instead? Decks, cards and their history are exported; the media files stay where they are, and cards keep their references to them."
+#~ msgstr "Les fichiers médias font {size} en tout, soit plus que les 2 Gio que Rappel lit dans un seul fichier. Un export qui les contiendrait ne pourrait pas être réimporté par Rappel. Exporter plutôt sans eux ? Les paquets, les cartes et leur historique sont exportés ; les fichiers médias restent où ils sont, et les cartes gardent leurs références à ces fichiers."
+
+#~ msgid "Save (Ctrl+Enter)"
+#~ msgstr "Enregistrer (Ctrl+Entrée)"
+
+#~ msgid "to save"
+#~ msgstr "pour enregistrer"
+
+#~ msgid "Undo Last Answer (Ctrl+Z)"
+#~ msgstr "Annuler la dernière réponse (Ctrl+Z)"
+
+#~ msgid "Edit Card (E)"
+#~ msgstr "Modifier la carte (E)"
 
 #~ msgid "Space"
 #~ msgstr "Espace"

@@ -14,6 +14,7 @@ crates/app/data/deck_row.blp
 crates/app/data/decks_page.blp
 crates/app/data/delete_card_dialog.blp
 crates/app/data/discard_dialog.blp
+crates/app/data/export_media_dialog.blp
 crates/app/data/import_dialog.blp
 crates/app/data/merge_deck_dialog.blp
 crates/app/data/preferences_dialog.blp
@@ -58,7 +59,9 @@ crates/app/src/startup.rs
 crates/app/src/transfer/anki.rs
 crates/app/src/transfer/anki_text.rs
 crates/app/src/transfer/mod.rs
+crates/app/src/transfer/progress.rs
 crates/app/src/transfer/text.rs
+crates/app/src/ui/keys.rs
 crates/app/src/ui/rows.rs
 crates/app/src/ui/selection.rs
 crates/app/src/ui/selection/text.rs
