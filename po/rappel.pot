@@ -645,6 +645,10 @@ msgid "Press 2 or Space"
 msgstr ""
 
 #: crates/app/data/review_page.blp
+msgid "_Edit Card"
+msgstr ""
+
+#: crates/app/data/review_page.blp
 msgid "_Suspend Card"
 msgstr ""
 

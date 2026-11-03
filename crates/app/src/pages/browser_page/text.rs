@@ -185,29 +185,6 @@ pub fn archived_entries() -> [String; 2] {
     ]
 }
 
-/// Where the filter drop-downs go (ADR 0068).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct FilterLayout {
-    /// The archived drop-down has a line of its own under the other
-    /// three, as wide as they are together; else it is fourth on their
-    /// line.
-    pub archived_below: bool,
-    /// The columns are as wide as each other. Four on one line are each as
-    /// wide as their text instead: four equal ones cut "Archived Hidden"
-    /// even at 1000 px.
-    pub homogeneous: bool,
-}
-
-/// The layout of the filters on a phone (`compact`, under 500 sp) or
-/// wider, with the archived drop-down `archived_visible` or not. Without
-/// it, the three filters are laid out as they always were (equal widths).
-pub fn filter_layout(compact: bool, archived_visible: bool) -> FilterLayout {
-    FilterLayout {
-        archived_below: compact,
-        homogeneous: compact || !archived_visible,
-    }
-}
-
 /// Whether the cards of archived decks are listed: the drop-down shows
 /// (some deck is archived) and says "Archived Shown" (entry 1).
 pub fn archived_shown(filter_visible: bool, selected: u32) -> bool {
@@ -583,16 +560,6 @@ mod tests {
             "\u{2068}a {name}\u{2069} (archived)"
         );
         assert_eq!(archived_entries(), ["Archived Hidden", "Archived Shown"]);
-        // Three equal filters as before, unless the fourth shows beside
-        // them; on a phone it goes under them.
-        let layout = |compact, visible| {
-            let l = filter_layout(compact, visible);
-            (l.archived_below, l.homogeneous)
-        };
-        assert_eq!(layout(false, false), (false, true));
-        assert_eq!(layout(false, true), (false, false));
-        assert_eq!(layout(true, false), (true, true));
-        assert_eq!(layout(true, true), (true, true));
         assert!(archived_shown(true, 1));
         assert!(!archived_shown(true, 0));
         // Hidden while no deck is archived: nothing to show.

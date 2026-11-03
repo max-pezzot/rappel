@@ -32,6 +32,12 @@ mod imp {
         pub compact: Cell<bool>,
         /// Select All's word, as the layout gives it (translated).
         pub select_all_word: RefCell<String>,
+        /// The title in full and as the bare count, and which one shows:
+        /// the count while the header is narrower than
+        /// `text::TIGHT_HEADER_WIDTH`.
+        pub full_title: RefCell<String>,
+        pub tight_title: RefCell<String>,
+        pub tight: Cell<bool>,
     }
 
     #[glib::object_subclass]
@@ -56,6 +62,16 @@ mod imp {
             self.select_all_word
                 .replace(self.select_all_content.label().to_string());
             let header = self.obj();
+            // The title follows the window's width (ADR 0071).
+            crate::ui::breakpoint::follow_window_width(
+                &*header,
+                crate::ui::selection::text::TIGHT_HEADER_WIDTH,
+                glib::clone!(
+                    #[weak]
+                    header,
+                    move |tight| header.set_tight(tight)
+                ),
+            );
             header.connect_compact_notify(|header| {
                 let imp = header.imp();
                 let word = if header.compact() {
@@ -87,9 +103,35 @@ glib::wrapper! {
 }
 
 impl SelectionHeader {
-    /// Sets the title ("3 Selected").
-    pub fn set_title(&self, title: &str) {
-        self.imp().title.set_title(title);
+    /// Sets the title ("3 Selected") and the shorter one for a narrow
+    /// header ("3"), which has the full one as its tooltip.
+    pub fn set_titles(&self, full: &str, tight: &str) {
+        let imp = self.imp();
+        imp.full_title.replace(full.to_owned());
+        imp.tight_title.replace(tight.to_owned());
+        self.show_title();
+    }
+
+    /// A window narrower than `text::TIGHT_HEADER_WIDTH` shows the bare
+    /// count as the title.
+    fn set_tight(&self, tight: bool) {
+        if tight != self.imp().tight.replace(tight) {
+            self.show_title();
+        }
+    }
+
+    /// Shows the title that fits the header's width.
+    fn show_title(&self) {
+        use gtk::prelude::WidgetExt;
+        let imp = self.imp();
+        let full = imp.full_title.borrow();
+        if imp.tight.get() {
+            imp.title.set_title(&imp.tight_title.borrow());
+            imp.title.set_tooltip_text(Some(&full));
+        } else {
+            imp.title.set_title(&full);
+            imp.title.set_tooltip_text(None);
+        }
     }
 
     /// The title shown.
@@ -122,7 +164,7 @@ mod tests {
             assert_eq!(content.label(), "");
             header.set_compact(false);
             assert_eq!(content.label(), "Select _All");
-            header.set_title("2 Selected");
+            header.set_titles("2 Selected", "2");
             assert_eq!(header.title(), "2 Selected");
         });
     }

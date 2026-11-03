@@ -36,6 +36,18 @@ pub fn selection_title(n: usize) -> String {
     }
 }
 
+/// The header's title where "3 Selected" would be cut: the bare count
+/// ("3"; the full title is the tooltip and the screen reader's label).
+pub fn selection_title_tight(n: usize) -> String {
+    group_digits(n)
+}
+
+/// The window width in pixels under which the header shows [`selection_title_tight`]:
+/// at 360 px, with minimise and maximise shown beside Select All and
+/// Cancel, the title has about 90 px, which cuts "30 sélectionnées"
+/// (ADR 0071).
+pub const TIGHT_HEADER_WIDTH: i32 = 400;
+
 /// Which way the Suspend button of the action bar goes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SuspendChoice {
@@ -339,6 +351,8 @@ mod tests {
         assert_eq!(selection_title(0), "Select Cards");
         assert_eq!(selection_title(3), "3 Selected");
         assert_eq!(selection_title(1_200), "1,200 Selected");
+        assert_eq!(selection_title_tight(0), "0");
+        assert_eq!(selection_title_tight(1_200), "1,200");
     }
 
     #[test]

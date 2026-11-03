@@ -74,8 +74,6 @@ mod imp {
         #[template_child]
         pub archived_filter: TemplateChild<gtk::DropDown>,
         #[template_child]
-        pub filter_grid: TemplateChild<gtk::Grid>,
-        #[template_child]
         pub filter_bar: TemplateChild<adw::Clamp>,
         #[template_child]
         pub content_stack: TemplateChild<gtk::Stack>,
@@ -230,6 +228,7 @@ impl BrowserPage {
                 Parts {
                     own_header: imp.header.get().upcast(),
                     select_button: imp.select_button.get(),
+                    narrow_select_button: None,
                     header: imp.selection_header.get(),
                     bar: imp.selection_bar.get(),
                     list: imp.card_list.get(),
@@ -286,27 +285,6 @@ impl BrowserPage {
         }
     }
 
-    /// Puts the archived drop-down beside the other filters, or under them
-    /// on a phone (`text::filter_layout`). A child's place in a grid is a
-    /// property of its layout child, which no breakpoint setter reaches,
-    /// hence the code.
-    fn place_archived_filter(&self) {
-        let imp = self.imp();
-        let layout = text::filter_layout(self.compact(), imp.archived_filter.get_visible());
-        let grid = &imp.filter_grid;
-        grid.set_column_homogeneous(layout.homogeneous);
-        let (column, row, width) = if layout.archived_below {
-            (0, 1, 3)
-        } else {
-            (3, 0, 1)
-        };
-        let filter = imp.archived_filter.get();
-        if grid.query_child(&filter) != (column, row, width, 1) {
-            grid.remove(&filter);
-            grid.attach(&filter, column, row, width, 1);
-        }
-    }
-
     /// Whether the cards of archived decks are listed.
     fn archived_shown(&self) -> bool {
         let filter = &self.imp().archived_filter;
@@ -323,7 +301,6 @@ impl BrowserPage {
                 self,
                 move |compact| {
                     page.set_compact(compact);
-                    page.place_archived_filter();
                 }
             ),
         );
@@ -560,7 +537,6 @@ impl BrowserPage {
 
         imp.quiet.set(true);
         imp.archived_filter.set_visible(any_archived);
-        self.place_archived_filter();
         let listed = text::filter_decks(&every_deck, show_archived);
         dropdown::set_labels(
             &imp.deck_filter,

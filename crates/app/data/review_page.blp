@@ -429,7 +429,15 @@ template $RappelReviewPage: Adw.NavigationPage {
 // the key press the item, but in managed scope, so only while the menu is
 // open (gtkmodelbutton.c, update_accel), where it acts like a click.
 menu card_menu {
+  // Edit Card is here too, for the window too narrow for its header button
+  // (pages/review_page.rs, `edit_button_shown`).
   section {
+    item {
+      label: _("_Edit Card");
+      accel: "e";
+      action: "review.edit";
+    }
+
     item {
       label: _("Card _Information");
       accel: "i";
