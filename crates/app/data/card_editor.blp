@@ -145,10 +145,50 @@ template $RappelCardEditor: Adw.Dialog {
 
                       accessibility {
                         label: _("Front");
-                        described-by: front_error;
+                        described-by: [
+                          front_error,
+                          front_same_label,
+                        ];
                       }
                     };
                   };
+                }
+
+                // Shown when other cards have the same front (#119, ADR
+                // 0072): a quiet note that never blocks saving, and a
+                // button that opens the first of them in Card Information.
+                // The text is set in dialogs/card_editor/mod.rs, without
+                // markup since it holds a deck's name.
+                Gtk.Box front_same {
+                  visible: false;
+                  spacing: 6;
+                  margin-top: 6;
+
+                  Gtk.Label front_same_label {
+                    use-markup: false;
+                    wrap: true;
+                    wrap-mode: word_char;
+                    xalign: 0;
+                    hexpand: true;
+
+                    styles [
+                      "dim-label",
+                      "caption",
+                    ]
+                  }
+
+                  Gtk.Button front_same_button {
+                    label: _("Show Card");
+                    valign: center;
+
+                    accessibility {
+                      described-by: front_same_label;
+                    }
+
+                    styles [
+                      "flat",
+                    ]
+                  }
                 }
 
                 Gtk.Label front_error {

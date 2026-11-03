@@ -523,6 +523,43 @@ fn merging_a_deck_of_ten_thousand_cards_is_fast() {
     assert_cpu_within(unmerge, ms(MERGE_MS), "unmerge_deck (10,000)");
 }
 
+/// The card editor's same-front lookup (#119, ADR 0072) on 10,000 cards
+/// whose fronts all hold the word "card", and 2,000 more with one front:
+/// a word every front holds (each read and compared, none kept), a front
+/// one card has, a front 2,000 cards share, and a pasted front of
+/// 200,000 words (its phrase cut to 256 bytes).
+#[test]
+fn finding_the_same_front_in_ten_thousand_cards_is_fast() {
+    let mut store = Store::in_memory();
+    let deck = store.create_deck_at("Big", T0).unwrap().id;
+    let other = store.create_deck_at("Other", T0).unwrap().id;
+    for i in 0..10_000 {
+        store
+            .add_card_at(&deck, &format!("Card {i}"), "back", T0)
+            .unwrap();
+    }
+    for _ in 0..2_000 {
+        store.add_card_at(&other, "**Hola**", "back", T0).unwrap();
+    }
+    let pasted = "card ".repeat(200_000);
+    let cases: [(&str, &str, usize, u64); 4] = [
+        ("a word every front holds", "card", 0, SAME_FRONT_MS),
+        ("a front one card has", "CARD 9999", 1, SAME_FRONT_MS),
+        ("a front 2,000 cards share", "hola", 2_000, SAME_FRONT_MS),
+        (
+            "a pasted front of 200,000 words",
+            &pasted,
+            0,
+            PASTED_FRONT_MS,
+        ),
+    ];
+    for (what, front, expected, bound) in cases {
+        let (t, same) = fastest(what, 3, || store.cards_with_front(front, None).unwrap());
+        assert_eq!(same.len(), expected, "{what}");
+        assert_cpu_within(t, ms(bound), what);
+    }
+}
+
 /// Entries in the log of `a_card_with_a_long_log_is_fast`'s card.
 const LONG_LOG: usize = 20_000;
 
@@ -784,5 +821,12 @@ const LONG_LOG_IMPORT_MS: u64 = 6_000;
 /// Parsing, setting or replacing 5,000 tags on one card (measured 15 ms,
 /// 185 ms and 209 ms).
 const TAGS_MS: u64 = 2_000;
+/// Each same-front lookup of `finding_the_same_front_in_ten_thousand_cards_is_fast`
+/// but the pasted one (measured 25 ms at most, for the word every front
+/// holds: 10,000 fronts read and compared).
+const SAME_FRONT_MS: u64 = 250;
+/// The pasted front of 1 MiB (measured 126 ms, nearly all of it parsing
+/// and folding the text, which the editor's preview does too).
+const PASTED_FRONT_MS: u64 = 1_500;
 /// The migration's index backfill of 5,000 cards (measured 87 ms).
 const REBUILD_INDEX_MS: u64 = 1_000;
