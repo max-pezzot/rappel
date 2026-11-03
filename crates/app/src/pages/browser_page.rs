@@ -1660,6 +1660,58 @@ mod tests {
         });
     }
 
+    /// The on-screen keyboard shrinks the window (ADR 0058): the dialog's
+    /// sheet takes the focus off the text of Add Tags (libadwaita 1.10 at
+    /// 360 × 330), which used to turn the typed name into a pill. The name
+    /// stays in the text, which has the focus again (ADR 0071). Fails
+    /// without `keys::AfterLeave::Refocus`, checked by making it `Split`.
+    #[test]
+    fn shrinking_the_window_keeps_what_is_typed_in_add_tags() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state, ids, _) = state_with_cards();
+            let page = page_over(&state, None);
+            let window = adw::Window::new();
+            window.set_default_size(360, 640);
+            window.set_content(Some(&page));
+            window.present();
+            crate::testing::settle_until(|| window.height() >= 600, Duration::from_secs(5));
+            page.selection().set_active(true);
+            page.selection().toggle(&ids[0]);
+            let dialog = page.selection().add_tags().unwrap();
+            let entry = dialog
+                .extra_child()
+                .and_downcast::<crate::widgets::TagEntry>()
+                .unwrap();
+            let text = entry.text();
+            assert!(
+                crate::testing::settle_until(|| text.has_focus(), Duration::from_secs(5)),
+                "the text has the focus when the dialog opens"
+            );
+            entry.set_tags(&["kept".to_owned()]);
+            // Typed without a comma, as the keys would leave it.
+            let mut at = text.position();
+            text.insert_text("zebra", &mut at);
+            text.set_position(at);
+            assert_eq!(entry.typed(), "zebra");
+
+            window.set_default_size(360, 330);
+            assert!(
+                crate::testing::settle_until(|| window.height() <= 330, Duration::from_secs(5)),
+                "the window got shorter ({} px)",
+                window.height()
+            );
+            // Let the leave of the focus (decided in an idle) happen.
+            crate::testing::settle_until(|| false, Duration::from_millis(500));
+            assert_eq!(entry.pill_names(), ["kept"], "no pill was made");
+            assert_eq!(entry.typed(), "zebra", "the name is still in the text");
+            assert!(text.has_focus(), "and the text has the focus");
+            assert_eq!(text.position(), 5, "with the cursor after it");
+            assert_eq!(text.selection_bounds(), None, "and nothing selected");
+            dialog.emit_by_name::<()>("response", &[&"cancel"]);
+            window.destroy();
+        });
+    }
+
     #[test]
     fn choose_all_then_leave_forgets_the_choice() {
         crate::testing::with_widgets(|| {

@@ -23,6 +23,7 @@ and the project aims to follow [Semantic Versioning](https://semver.org/).
 - Roadmap (SPEC §4, §5): phase 3a, organising and studying, ends in 0.4.0; phase 3b, publishing (a Snap, a self-hosted Flatpak, the finished metainfo and icon), ends in 1.0. 0.2.0 and 0.3.0 are not released as stable.
 
 ### Fixed
+- **Shrinking the window with Add Tags open keeps the name you typed.** An on-screen keyboard making the window shorter used to turn the typed name into a tag pill and lose the cursor; it now stays in the field, which keeps the keyboard focus. Tabbing or clicking away still makes the pill.
 - **Nothing is cut at 360 px, in French too.** All Cards' filter drop-downs now wrap onto further lines instead of ending in "…" ("Tous les paquets", "Toutes les étiquettes"); on a phone whose window shows minimise and maximise, the deck page's title has room (Select Cards moves to the bottom bar beside Study, and the subtitle shows one count), the title of selection mode shows just the count ("30", with "30 selected" as its tooltip), and a session's header keeps Edit Card in the Card Menu (which now lists it at every width).
 - **A Markdown table's border hugs its columns.** On a wide window a small table's border stretched across the whole card with an empty strip inside it; the grid is now as wide as its columns and sits at the start, and a table wider than the window still scrolls sideways (ADR 0019, #32).
 
