@@ -40,8 +40,6 @@ mod imp {
         pub deck_id: RefCell<String>,
         /// Merge Into… is enabled (`set_can_merge`).
         pub can_merge: Cell<bool>,
-        /// Practice is enabled (`practice_offered`).
-        pub can_practise: Cell<bool>,
         /// The accessible label last set, "Scratch, 12 due, 5 new".
         pub accessible_label: RefCell<String>,
     }
@@ -110,7 +108,6 @@ impl DeckRow {
         let practisable = summary.card_count.saturating_sub(summary.suspended_count);
         let can =
             crate::pages::practice_offered(usize::try_from(practisable).unwrap_or(usize::MAX));
-        imp.can_practise.set(can);
         self.action_set_enabled("row.practice", can);
         imp.separator_label.set_visible(line.has_separator());
         // The row is read as one: "Scratch, 12 due, 5 new" (the "·" and the
@@ -137,12 +134,6 @@ impl DeckRow {
     #[cfg(test)]
     pub fn can_merge(&self) -> bool {
         self.imp().can_merge.get()
-    }
-
-    /// Whether Practice is enabled in the row's menu.
-    #[cfg(test)]
-    pub fn can_practise(&self) -> bool {
-        self.imp().can_practise.get()
     }
 
     /// The id of the deck this row shows.
@@ -173,19 +164,28 @@ mod tests {
             let (_tmp, state) = crate::testing::temporary_state();
             let deck = state.create_deck("Spanish").unwrap();
             let now = rappel_core::time::now_ms();
-            let row = |state: &crate::state::AppState| {
+            let list = gtk::ListBox::new();
+            let window = gtk::Window::builder().child(&list).build();
+            window.present();
+            // The row's menu, as drawn: its Practice item follows the
+            // `row.practice` action's enabled state.
+            let practice_enabled = |state: &crate::state::AppState| {
                 let decks = state.list_decks(now).unwrap();
-                DeckRow::new(&decks[0], now, now + 1)
+                let row = DeckRow::new(&decks[0], now, now + 1);
+                list.remove_all();
+                list.append(&row);
+                crate::testing::menu_item_sensitive(&row.imp().menu_button, "Practice")
             };
-            assert!(!row(&state).can_practise());
+            assert!(!practice_enabled(&state));
             let card = state
                 .add_card_with_tags(&deck.id, "q", "a", &[])
                 .unwrap()
                 .card
                 .id;
-            assert!(row(&state).can_practise());
+            assert!(practice_enabled(&state));
             state.set_suspended(&[card], true).unwrap();
-            assert!(!row(&state).can_practise());
+            assert!(!practice_enabled(&state));
+            window.destroy();
         });
     }
 }

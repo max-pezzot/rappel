@@ -27,7 +27,7 @@ use rappel_core::scheduling::{StudyInput, StudyScope};
 use crate::dialogs::card_editor::{CardEditor, Saved};
 use crate::dialogs::{card_info, merge_deck, move_card};
 use crate::i18n::gettext;
-use crate::pages::{ReviewPage, StartedFrom, StatsPage, Studied, practice_offered};
+use crate::pages::{ReviewPage, StartedFrom, StatsPage, Studied};
 use crate::state::AppState;
 use crate::ui::focus::{self, ShownFocus, index_after_removal};
 use crate::ui::selection::{CardSelection, Parts, SelectionPage};
@@ -522,14 +522,11 @@ impl DeckPage {
                 imp.window_title.set_subtitle(&study_subtitle(&input));
                 self.action_set_enabled("deck.study", !input.is_empty());
                 // Practice goes over every card, due or not (ADR 0070).
-                let practisable = state.practice_queue(&scope, now).map_or_else(
-                    |err| {
-                        tracing::warn!("cannot read what to practise: {err}");
-                        0
-                    },
-                    |queue| queue.len(),
-                );
-                self.action_set_enabled("deck.practice", practice_offered(practisable));
+                let practisable = state.has_practisable(&scope).unwrap_or_else(|err| {
+                    tracing::warn!("cannot read what to practise: {err}");
+                    false
+                });
+                self.action_set_enabled("deck.practice", practisable);
                 match (
                     state.next_study_change(&scope, now),
                     state.next_day_start(now),
@@ -2425,34 +2422,6 @@ mod tests {
         });
     }
 
-    /// Whether the Deck Menu's item `text` can be pressed, as drawn in its
-    /// open popover.
-    fn deck_menu_item_sensitive(page: &DeckPage, text: &str) -> bool {
-        let button = &page.imp().deck_menu_button;
-        button.popup();
-        let mut todo = vec![
-            button
-                .popover()
-                .expect("the menu is open")
-                .upcast::<gtk::Widget>(),
-        ];
-        let mut found = None;
-        while let Some(widget) = todo.pop() {
-            if widget.type_().name() == "GtkModelButton"
-                && widget.property::<Option<String>>("text").as_deref() == Some(text)
-            {
-                found = Some(widget.is_sensitive());
-            }
-            let mut child = widget.first_child();
-            while let Some(c) = child {
-                child = c.next_sibling();
-                todo.push(c);
-            }
-        }
-        button.popdown();
-        found.unwrap_or_else(|| panic!("the Deck Menu has {text}"))
-    }
-
     /// Practice in the Deck Menu is offered while the deck has a card to
     /// practise, due or not, and pushes a practice of the deck (ADR 0070).
     #[test]
@@ -2463,7 +2432,10 @@ mod tests {
             let window = adw::Window::builder().content(&view).build();
             view.push(&page);
             window.present();
-            assert!(deck_menu_item_sensitive(&page, "Practice"));
+            assert!(crate::testing::menu_item_sensitive(
+                &page.imp().deck_menu_button,
+                "Practice"
+            ));
             page.activate_action("deck.practice", None).unwrap();
             let practice = view.visible_page().and_downcast::<ReviewPage>().unwrap();
             assert!(practice.is_practice());
@@ -2471,7 +2443,10 @@ mod tests {
             // Suspended, the only card cannot be practised.
             state.set_suspended(&ids, true).unwrap();
             page.update_study();
-            assert!(!deck_menu_item_sensitive(&page, "Practice"));
+            assert!(!crate::testing::menu_item_sensitive(
+                &page.imp().deck_menu_button,
+                "Practice"
+            ));
             window.destroy();
         });
     }

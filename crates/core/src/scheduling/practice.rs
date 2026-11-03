@@ -8,9 +8,9 @@
 //! difficulty; the review log is the source of truth and append-only
 //! (ADR 0028). So a practice answer is kept only here, in memory, for the
 //! summary, and nothing in this module can reach a [`Store`]: [`Practice`]
-//! holds plain card ids, and the only store call practice needs,
-//! [`Store::practice_queue`], takes `&self` and reads in one read
-//! transaction.
+//! holds plain card ids. The store calls practice needs,
+//! [`Store::practice_queue`] and `has_practisable`, read in one read
+//! transaction with `PRAGMA query_only` on, so a write there fails.
 //!
 //! Order: [`practice_order`], lowest retrievability first, then the new
 //! cards, oldest first, at most [`PRACTICE_LIMIT`]. A Fail brings the card

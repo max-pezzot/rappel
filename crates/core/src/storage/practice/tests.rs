@@ -10,6 +10,8 @@ use crate::Error;
 use crate::domain::Grade;
 use crate::scheduling::{PRACTICE_LIMIT, Practice, STEP_MS, StudyScope};
 use crate::storage::{DB_FILE_NAME, Store};
+
+use super::query_only;
 use crate::test_support::{DAY_MS, T0, answer, dump, with_suffix};
 
 /// Practice time, 40 days after the first cards were learned.
@@ -297,6 +299,7 @@ fn a_practice_dropped_part_way_leaves_nothing_behind() {
     let mut store = Store::open(tmp.path()).unwrap();
     let (spanish, _) = fixture(&mut store);
     let before = snapshot(&store, &db);
+    let changes = store.conn.total_changes();
     {
         let mut practice = Practice::new(
             store
@@ -310,7 +313,84 @@ fn a_practice_dropped_part_way_leaves_nothing_behind() {
         assert!(practice.remaining() > 0);
     }
     assert_eq!(snapshot(&store, &db), before);
+    assert_eq!(store.conn.total_changes(), changes);
     drop(store);
     let store = Store::open(tmp.path()).unwrap();
     assert_eq!(dump(&store), before.dump);
+}
+
+fn is_query_only(store: &Store) -> bool {
+    store
+        .conn
+        .query_row("PRAGMA query_only", [], |r| r.get(0))
+        .unwrap()
+}
+
+/// While a practice reads, SQLite refuses any write (`SQLITE_READONLY`):
+/// a write slipped into the read fails and changes nothing. The setting
+/// is cleared afterwards, also when the read fails, so the app's writes
+/// still work.
+#[test]
+fn a_write_inside_a_practices_read_is_refused() {
+    let mut store = Store::in_memory();
+    let (spanish, gone) = fixture(&mut store);
+    let before = dump(&store);
+    let refused = query_only(&store.conn, |conn| {
+        conn.execute("UPDATE decks SET name = 'changed'", [])?;
+        Ok(())
+    });
+    match refused {
+        Err(Error::Sqlite(rusqlite::Error::SqliteFailure(e, _))) => {
+            assert_eq!(e.code, rusqlite::ErrorCode::ReadOnly);
+        }
+        other => panic!("the write was not refused: {other:?}"),
+    }
+    assert_eq!(dump(&store), before);
+    assert!(!is_query_only(&store));
+    // Cleared after the store's own calls, whether they succeed or fail.
+    store
+        .practice_queue(&StudyScope::deck(&spanish), NOW)
+        .unwrap();
+    assert!(!is_query_only(&store));
+    assert!(store.practice_queue(&StudyScope::deck(&gone), NOW).is_err());
+    assert!(store.has_practisable(&StudyScope::deck(&gone)).is_err());
+    assert!(!is_query_only(&store));
+    // A write after it works.
+    store.create_deck_at("After", T0).unwrap();
+}
+
+/// `has_practisable` says whether `practice_queue` has a card, for every
+/// kind of scope.
+#[test]
+fn has_practisable_agrees_with_the_queue() {
+    let mut store = Store::in_memory();
+    let (spanish, gone) = fixture(&mut store);
+    let empty = store.create_deck_at("Empty", T0).unwrap().id;
+    let only_suspended = store.create_deck_at("Suspended", T0).unwrap().id;
+    let s = card(&mut store, &only_suspended, "s", &["lonely"]);
+    store.set_suspended(&[s], true).unwrap();
+    let verbs = tag_id(&store, "verbs");
+    let lonely = tag_id(&store, "lonely");
+    for scope in [
+        StudyScope::deck(&spanish),
+        StudyScope::deck(&empty),
+        StudyScope::deck(&only_suspended),
+        StudyScope::tag(verbs),
+        StudyScope::tag(lonely),
+    ] {
+        let queue = store.practice_queue(&scope, NOW).unwrap();
+        assert_eq!(
+            store.has_practisable(&scope).unwrap(),
+            !queue.is_empty(),
+            "{scope:?}"
+        );
+    }
+    assert!(matches!(
+        store.has_practisable(&StudyScope::deck(&gone)),
+        Err(Error::DeckArchived(_))
+    ));
+    assert!(matches!(
+        store.has_practisable(&StudyScope::tag("not-a-tag")),
+        Err(Error::TagNotFound(_))
+    ));
 }

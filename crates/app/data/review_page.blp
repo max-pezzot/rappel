@@ -1,11 +1,10 @@
 using Gtk 4.0;
 using Adw 1;
 
-// A study session of a deck or a tag, or a practice of one (ADR 0070:
-// the banner shows, nothing is written). Texts are set in
-// pages/review_page.rs; the
-// front and back boxes are filled by render/ (ADR 0019), which escapes the
-// untrusted card content.
+// A study session of a deck or a tag, or a practice of one (ADR 0070: the
+// banner shows, nothing is written). Texts are set in pages/review_page.rs;
+// the front and back boxes are filled by render/ (ADR 0019), which escapes
+// the untrusted card content.
 template $RappelReviewPage: Adw.NavigationPage {
   title: C_("page title", "Study");
 
@@ -89,6 +88,8 @@ template $RappelReviewPage: Adw.NavigationPage {
       [top]
       Adw.Banner banner {
         title: _("Practice — nothing is rescheduled");
+        // The title is plain text (AdwBanner:use-markup defaults to true).
+        use-markup: false;
       }
 
       // No transitions (AdwViewStack's default): the card and the summary

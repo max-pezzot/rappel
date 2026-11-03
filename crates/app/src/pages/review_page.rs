@@ -10,11 +10,11 @@
 //! the core's [`Practice`] instead: lowest retrievability first, the same
 //! Fail and Pass, and **nothing written**. Its answers and their Undo go
 //! only to the [`Practice`] in memory (`grade_practice`, `undo_practice`,
-//! which never reach the [`AppState`]); a banner says "Practice — nothing
+//! which call no writing method of [`AppState`]: the tests enforce it); a banner says "Practice — nothing
 //! is rescheduled" and the summary "Practice: nothing was rescheduled".
 //! Edit, Card Information, Suspend, Move to Deck and Delete work as in a
-//! session: they are changes the user asks for, each with its own Undo,
-//! not scheduling.
+//! session: explicit card commands, each with its own Undo, that do not
+//! reschedule, so the summary stays true.
 //!
 //! Keys, in the bubble phase so a focused button keeps its own Space and
 //! Enter: Space or Enter shows the answer; then 1 is Fail, 2 or Space is
@@ -145,7 +145,7 @@ mod imp {
         /// Suspend, a Delete or a Move).
         pub left_decks: RefCell<std::collections::HashSet<String>>,
         /// The session, or the practice (ADR 0070).
-        pub session: RefCell<Option<Run>>,
+        pub(super) session: RefCell<Option<Run>>,
         /// The card on screen.
         pub current: RefCell<Option<String>>,
         /// Its back, parsed, until it is shown.
@@ -1487,7 +1487,8 @@ impl ReviewPage {
 
     /// A practice's answer for the card on screen (ADR 0070): kept in the
     /// [`Practice`] alone, which shows the next card. Nothing is written:
-    /// this reads no [`AppState`], so it has no way to the database.
+    /// this does not use the [`AppState`] (the practice tests check the
+    /// database is unchanged).
     fn grade_practice(&self, grade: Grade) {
         let imp = self.imp();
         if !imp.revealed.get() {
@@ -1507,16 +1508,56 @@ impl ReviewPage {
     /// Steps a practice back one answer (ADR 0070): the card is shown
     /// again, front first, and the summary loses the answer. Only memory
     /// changes, as for [`Self::grade_practice`].
+    ///
+    /// An answer whose card can no longer be practised (deleted, suspended,
+    /// moved out of a tag's decks by an archive, `practisable_card`) is
+    /// taken back silently, its card left out, and the step goes on to the
+    /// answer before it: one Ctrl+Z always shows a card that came back,
+    /// never an error about one that is gone. With no such answer left,
+    /// the card on screen stays as it was.
     fn undo_practice(&self) {
         let imp = self.imp();
-        let undone = match imp.session.borrow_mut().as_mut() {
-            Some(Run::Practice(practice)) => practice.undo_last().is_some(),
-            _ => false,
+        let back = loop {
+            let undone = match imp.session.borrow_mut().as_mut() {
+                Some(Run::Practice(practice)) => practice.undo_last(),
+                _ => None,
+            };
+            let Some(id) = undone else {
+                break None;
+            };
+            if self.practisable_card(&id) {
+                break Some(id);
+            }
+            if let Some(Run::Practice(practice)) = imp.session.borrow_mut().as_mut() {
+                practice.skip(&id);
+            }
         };
-        if undone {
+        if back.is_some() || imp.current.borrow().is_none() {
+            // A card came back, or the summary is read again.
             imp.current.replace(None);
             self.show_next();
+        } else {
+            self.update_undo();
+            let left = imp.session.borrow().as_ref().map_or(0, Run::remaining);
+            imp.window_title.set_subtitle(&left_text(left));
         }
+    }
+
+    /// Whether card `id` can still be practised here: live, not
+    /// suspended, and in a deck that is not archived nor left by this
+    /// page (`left_decks`). Only reads.
+    fn practisable_card(&self, id: &str) -> bool {
+        let imp = self.imp();
+        let Some(state) = imp.state.get() else {
+            return false;
+        };
+        state.card(id).is_ok_and(|card| {
+            !card.suspended
+                && !imp.left_decks.borrow().contains(&card.deck_id)
+                && state
+                    .deck(&card.deck_id)
+                    .is_ok_and(|deck| !deck.is_archived())
+        })
     }
 
     /// Practice from the summary's button: this page gives way to a
@@ -1561,7 +1602,7 @@ impl ReviewPage {
         let practising = self.is_practice();
         let tiles = summary_tiles(&summary, practising);
         // Read only after a session: a practice never offers it.
-        let practisable = if practising { 0 } else { self.practisable() };
+        let practisable = !practising && self.practisable();
         imp.practice_button
             .set_visible(practice_button_shown(practising, practisable));
         // A practice's summary says what it did in words, and gives the
@@ -1614,20 +1655,20 @@ impl ReviewPage {
         nav::pop(self);
     }
 
-    /// How many cards a practice of what this page studies would show now
-    /// (0 if that cannot be read: the button is then not offered).
-    fn practisable(&self) -> usize {
+    /// Whether a practice of what this page studies would show a card
+    /// (`AppState::has_practisable`; `false` if that cannot be read: the
+    /// button is then not offered).
+    fn practisable(&self) -> bool {
         let imp = self.imp();
         let (Some(state), Some(studied)) = (imp.state.get(), imp.studied.get()) else {
-            return 0;
+            return false;
         };
-        match state.practice_queue(&studied.scope(), rappel_core::time::now_ms()) {
-            Ok(queue) => queue.len(),
-            Err(err) => {
+        state
+            .has_practisable(&studied.scope())
+            .unwrap_or_else(|err| {
                 tracing::warn!("cannot read what to practise: {err}");
-                0
-            }
-        }
+                false
+            })
     }
 
     /// Shows `message`, dismissing the previous error toast of this page
@@ -1772,8 +1813,10 @@ enum Mode {
 /// the card to show and what is left; answers and their Undo go to each
 /// in its own way (`grade`, `grade_practice`).
 #[derive(Debug)]
-pub enum Run {
+pub(super) enum Run {
+    /// A session: each answer is recorded with `record_review`.
     Study(Session),
+    /// A practice: answers are kept in memory only (ADR 0070).
     Practice(Practice),
 }
 
@@ -1830,9 +1873,10 @@ pub fn practice_offered(practisable: usize) -> bool {
 }
 
 /// Whether the summary shows its Practice button: after a session, not a
-/// practice (which would only start over), when [`practice_offered`].
-fn practice_button_shown(practising: bool, practisable: usize) -> bool {
-    !practising && practice_offered(practisable)
+/// practice (which would only start over), when the scope has a card to
+/// practise (`practisable`, from `AppState::has_practisable`).
+fn practice_button_shown(practising: bool, practisable: bool) -> bool {
+    !practising && practisable
 }
 
 /// The practice summary's title. Keep `practice_complete` and
@@ -3528,6 +3572,7 @@ mod tests {
                 .map(|id| state.review_events(id).unwrap().len())
                 .collect();
             let before = on_disk(&state, &observer);
+            let changes = state.total_changes();
 
             let page = practice_of(&state, &deck);
             let _window = in_window(&page);
@@ -3572,6 +3617,7 @@ mod tests {
             assert!(imp.banner.is_revealed());
 
             assert_eq!(on_disk(&state, &observer), before);
+            assert_eq!(state.total_changes(), changes);
             let after: Vec<usize> = ids
                 .iter()
                 .map(|id| state.review_events(id).unwrap().len())
@@ -3687,9 +3733,9 @@ mod tests {
     fn practice_is_offered_only_with_cards_and_not_from_a_practice() {
         assert!(!practice_offered(0));
         assert!(practice_offered(1));
-        assert!(practice_button_shown(false, 3));
-        assert!(!practice_button_shown(false, 0));
-        assert!(!practice_button_shown(true, 3));
+        assert!(practice_button_shown(false, true));
+        assert!(!practice_button_shown(false, false));
+        assert!(!practice_button_shown(true, true));
         assert_eq!(StartedFrom::DeckPage.done_label(), "_Back to Deck");
         assert_eq!(StartedFrom::AllCards.done_label(), "_Back to All Cards");
         assert_eq!(StartedFrom::DeckList.done_label(), "_Back to Decks");
@@ -3759,6 +3805,70 @@ mod tests {
             assert_eq!(current(&page), Some(other));
             pass(&page);
             assert_eq!(imp.summary_page.title(), "Practice Complete");
+        });
+    }
+
+    /// Undo during a practice never brings back a card that can no longer
+    /// be practised (deleted or suspended since): its answer is taken back
+    /// silently and the step goes on to the answer before, or, with none,
+    /// the card on screen stays. No error toast, nothing written.
+    #[test]
+    fn a_practice_undo_steps_over_cards_deleted_or_suspended_since() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state, page, _) = page_of(3);
+            drop(page);
+            let deck = state.decks().unwrap().remove(0);
+            let answers = |page: &ReviewPage| {
+                page.imp()
+                    .session
+                    .borrow()
+                    .as_ref()
+                    .unwrap()
+                    .summary()
+                    .answers
+            };
+
+            // The latest answer's card was deleted: it is stepped over and
+            // the one before comes back.
+            let page = practice_of(&state, &deck);
+            let _window = in_window(&page);
+            let first = current(&page).unwrap();
+            pass(&page);
+            let second = current(&page).unwrap();
+            pass(&page);
+            state.delete_card(&second).unwrap();
+            assert_eq!(page.key(Key::Undo), glib::Propagation::Stop);
+            assert_eq!(current(&page), Some(first.clone()));
+            assert_eq!(answers(&page), 0);
+            assert!(!can_undo(&page));
+            assert!(page.imp().errors.is_empty(), "no error toast");
+            state.undelete_card(&second).unwrap();
+
+            // The only answer's card was suspended: Undo takes the answer
+            // back, and the card on screen stays as it was.
+            let page = practice_of(&state, &deck);
+            let _window = in_window(&page);
+            let answered = current(&page).unwrap();
+            pass(&page);
+            let on_screen = current(&page).unwrap();
+            page.reveal();
+            state
+                .set_suspended(std::slice::from_ref(&answered), true)
+                .unwrap();
+            page.undo();
+            assert_eq!(current(&page), Some(on_screen));
+            assert!(page.imp().revealed.get(), "the card was not shown again");
+            assert_eq!(answers(&page), 0);
+            assert!(!can_undo(&page));
+            assert!(page.imp().errors.is_empty(), "no error toast");
+            // Nothing of it comes back later either.
+            let mut rest = Vec::new();
+            while let Some(id) = current(&page) {
+                assert!(rest.len() < 10, "the practice does not end");
+                rest.push(id);
+                pass(&page);
+            }
+            assert!(!rest.contains(&answered));
         });
     }
 }

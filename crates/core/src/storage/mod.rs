@@ -284,6 +284,14 @@ impl Store {
         }
     }
 
+    /// How many rows this store's connection has changed since it was
+    /// opened (`sqlite3_total_changes64`): for tests that check a read,
+    /// such as a practice, wrote nothing (ADR 0070).
+    #[must_use]
+    pub fn total_changes(&self) -> u64 {
+        self.conn.total_changes()
+    }
+
     /// Takes the warnings from opening this store (empty after the first
     /// call). See [`OpenWarning`].
     pub fn take_open_warnings(&mut self) -> Vec<OpenWarning> {
