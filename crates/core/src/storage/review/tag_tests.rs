@@ -10,7 +10,7 @@ use crate::domain::Grade;
 use crate::scheduling::session::{EARLY_MS, StudyInput};
 use crate::scheduling::{STEP_MS, StudyScope};
 use crate::storage::Store;
-use crate::test_support::{DAY_MS, T0, answer};
+use crate::test_support::{DAY_MS, T0, answer, learn, tag_id};
 
 /// Study time, 40 days after the cards were learned: those are due.
 const NOW: i64 = T0 + 40 * DAY_MS;
@@ -34,24 +34,6 @@ fn deck_with(store: &mut Store, name: &str, tags: &[&[&str]]) -> (String, Vec<St
         })
         .collect();
     (deck, cards)
-}
-
-/// Learns `card` on day `day` after `T0`, so it is due by `NOW`, the
-/// earlier day the more overdue.
-fn learn(store: &mut Store, card: &str, day: i64) {
-    let at = T0 + day * DAY_MS;
-    answer(store, card, Grade::Pass, at);
-    answer(store, card, Grade::Pass, at + STEP_MS);
-}
-
-fn tag_id(store: &Store, name: &str) -> String {
-    store
-        .tags()
-        .unwrap()
-        .into_iter()
-        .find(|t| t.name == name)
-        .unwrap()
-        .id
 }
 
 fn tag_input(store: &Store, name: &str) -> StudyInput {

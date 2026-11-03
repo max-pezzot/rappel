@@ -301,7 +301,10 @@ impl<P: SelectionPage, T: SelectableCard> CardSelection<P, T> {
                 let Some(selection) = Self::upgrade(&weak) else {
                     return;
                 };
-                if removed > 0 {
+                // Nothing chosen (always, outside selection mode): nothing
+                // to drop, and no O(n) walk of the list on every change
+                // (a deck page's refresh, an edit).
+                if removed > 0 && selection.0.selection.borrow().len() > 0 {
                     let ids = selection.ids();
                     selection
                         .0
@@ -518,7 +521,13 @@ impl<P: SelectionPage, T: SelectableCard> CardSelection<P, T> {
             self.set_enabled(name, n > 0);
         }
         self.set_enabled("move", n > 0 && page.can_move_cards());
-        let chosen = self.chosen_items();
+        // Nothing chosen, no items to look at: this runs on every change
+        // of the list, so it must not walk it then (O(n) per change).
+        let chosen = if n == 0 {
+            Vec::new()
+        } else {
+            self.chosen_items()
+        };
         self.set_enabled(
             "reset",
             text::reset_offered(chosen.iter().map(SelectableCard::card_is_new)),

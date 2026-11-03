@@ -6,10 +6,11 @@
 use rusqlite::Connection;
 
 use super::Store;
+use super::search::starts_token;
 use crate::content::search_text;
 use crate::error::Result;
 
-/// Another live card whose front reads the same ([`front_key`]).
+/// Another live card whose front reads the same (`front_key`: case, accents and spacing ignored).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SameFront {
     /// The card.
@@ -28,7 +29,7 @@ pub struct SameFront {
 /// accents, every run of whitespace (newlines included) as one space and
 /// none at the ends. Punctuation stays: "Hola!" and "Hola" differ.
 #[must_use]
-pub fn front_key(front_md: &str) -> String {
+pub(crate) fn front_key(front_md: &str) -> String {
     collapse_whitespace(&search_text(front_md))
 }
 
@@ -50,18 +51,6 @@ fn collapse_whitespace(text: &str) -> String {
 /// lookups (ADR 0050); the cards whose fronts start with the same first
 /// 256 bytes are few, and Rust compares the rest.
 const MAX_PHRASE_BYTES: usize = 256;
-
-/// Whether the `unicode61` tokenizer reads `c` as part of a token, as far
-/// as where a phrase starts goes: a letter or digit (its default token
-/// categories `L*` and `N*`, which Rust's `is_alphanumeric` covers), or a
-/// private-use character (`Co`), which Rust does not call alphanumeric.
-/// A character Rust calls alphanumeric that FTS5 does not read as a token
-/// (a few marks) only starts the phrase one separator early: the same
-/// tokens.
-fn starts_token(c: char) -> bool {
-    c.is_alphanumeric()
-        || matches!(c, '\u{E000}'..='\u{F8FF}' | '\u{F0000}'..='\u{FFFFD}' | '\u{100000}'..='\u{10FFFD}')
-}
 
 /// The FTS5 query for the fronts that start with `key`'s words in order:
 /// one quoted phrase on the `front` column, anchored to the column's first
@@ -104,7 +93,7 @@ pub const MAX_SAME_FRONT_BYTES: usize = 64 * 1024;
 
 impl Store {
     /// The live cards, in every live deck (archived ones included), whose
-    /// front reads the same as `front_md` ([`front_key`]), other than card
+    /// front reads the same as `front_md` (`front_key`), other than card
     /// `except_id`: those in decks not archived first, then the newest
     /// first. Empty for a front without a letter, digit or private-use
     /// character, and for one longer than [`MAX_SAME_FRONT_BYTES`], which
@@ -133,31 +122,38 @@ fn same_front_in(conn: &Connection, key: &str, except_id: Option<&str>) -> Resul
     let Some(phrase) = phrase_query(key) else {
         return Ok(Vec::new());
     };
+    // No ORDER BY: SQLite would copy every matching row, its whole front
+    // included, into a sorter before the first one is compared (a 1 MiB
+    // front 256 times over doubled the lookup's time, ADR 0073). Each row
+    // is compared as it comes and only the matches are sorted, in Rust.
     let mut stmt = conn.prepare(
-        "SELECT c.id, c.deck_id, d.name, d.archived_at IS NOT NULL, f.front
+        "SELECT c.id, c.deck_id, d.name, d.archived_at IS NOT NULL, c.seq, f.front
          FROM cards_fts f
          JOIN cards c ON c.seq = f.rowid AND c.deleted_at IS NULL
          JOIN decks d ON d.id = c.deck_id AND d.deleted_at IS NULL
-         WHERE cards_fts MATCH ?1 AND c.id IS NOT ?2
-         ORDER BY d.archived_at IS NOT NULL, c.seq DESC",
+         WHERE cards_fts MATCH ?1 AND c.id IS NOT ?2",
     )?;
     let mut rows = stmt.query(rusqlite::params![phrase, except_id])?;
     let mut found = Vec::new();
     while let Some(r) = rows.next()? {
         // Compared word by word, never copied: `key` is not empty and
         // has single spaces only.
-        let stored = r.get_ref(4)?.as_str().map_err(rusqlite::Error::from)?;
+        let stored = r.get_ref(5)?.as_str().map_err(rusqlite::Error::from)?;
         if !stored.split_whitespace().eq(key.split(' ')) {
             continue;
         }
-        found.push(SameFront {
+        let seq: i64 = r.get(4)?;
+        let same = SameFront {
             card_id: r.get(0)?,
             deck_id: r.get(1)?,
             deck_name: r.get(2)?,
             archived: r.get(3)?,
-        });
+        };
+        found.push((seq, same));
     }
-    Ok(found)
+    // Decks not archived first, then the newest card (the largest `seq`).
+    found.sort_by_key(|(seq, same)| (same.archived, std::cmp::Reverse(*seq)));
+    Ok(found.into_iter().map(|(_, same)| same).collect())
 }
 
 #[cfg(test)]

@@ -25,6 +25,25 @@ pub(crate) fn answer(store: &mut Store, card: &str, grade: Grade, at: i64) -> Re
         .unwrap()
 }
 
+/// Learns `card` on day `day` after [`T0`]: two Passes ten minutes apart,
+/// so it is in review (the earlier the day, the more overdue later on).
+pub(crate) fn learn(store: &mut Store, card: &str, day: i64) {
+    let at = T0 + day * DAY_MS;
+    answer(store, card, Grade::Pass, at);
+    answer(store, card, Grade::Pass, at + crate::scheduling::STEP_MS);
+}
+
+/// The id of the tag named `name`.
+pub(crate) fn tag_id(store: &Store, name: &str) -> String {
+    store
+        .tags()
+        .unwrap()
+        .into_iter()
+        .find(|t| t.name == name)
+        .unwrap()
+        .id
+}
+
 /// A `card_schedule` row: card id, phase, due, stability and difficulty as
 /// bits, last review, reps, lapses.
 pub(crate) type ScheduleRow = (String, String, i64, u64, u64, i64, i64, i64);

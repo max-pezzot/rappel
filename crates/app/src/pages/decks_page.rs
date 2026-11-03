@@ -31,7 +31,7 @@ use crate::state::AppState;
 use crate::ui::focus::index_after_removal;
 use crate::ui::nav;
 use crate::ui::text::with_error;
-use crate::ui::toast::{show_error, show_toast_from, undo_toast};
+use crate::ui::toast::{Message, show_error, show_error_message, show_toast_from, undo_toast};
 use crate::widgets::DeckRow;
 use crate::widgets::deck_row::text::refresh_delay_ms;
 use crate::window::RappelWindow;
@@ -595,7 +595,7 @@ impl DecksPage {
             }
             Err(err) => {
                 if let Some(page) = page.upgrade() {
-                    page.error_toast(&merge_deck::not_restored_text(
+                    page.error_message(&merge_deck::not_restored_text(
                         &done.source,
                         &done.target,
                         &err,
@@ -643,7 +643,7 @@ impl DecksPage {
         };
         match state.undelete_deck(id) {
             Ok(_) => self.reload_or_toast(Focus::Deck(id)),
-            Err(err) => self.error_toast(&crate::ui::text::not_restored(name, &err)),
+            Err(err) => self.error_message(&crate::ui::text::not_restored(name, &err)),
         }
     }
 
@@ -841,6 +841,12 @@ impl DecksPage {
 
     fn error_toast(&self, message: &str) {
         show_error(self, "a deck operation", message);
+    }
+
+    /// [`Self::error_toast`] for a message whose title was decided on its
+    /// template (a deck's name in it never splits the title).
+    fn error_message(&self, message: &Message) {
+        show_error_message(self, "a deck operation", message);
     }
 }
 

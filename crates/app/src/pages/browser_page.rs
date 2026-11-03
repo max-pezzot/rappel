@@ -1835,6 +1835,90 @@ mod tests {
         });
     }
 
+    /// Slice 2's review (ADR 0073): outside selection mode, a change of one
+    /// row and a refresh of the header and bar cost no walk of the list.
+    /// Before, each single-row change collected every card id to drop the
+    /// cards that left the choice, and each refresh read every item to
+    /// find the chosen ones, even with none chosen: O(n) per change, so a
+    /// thousand changes of a 10,000-card list took 8.6 s of CPU in a debug
+    /// build (checked on the code without the fix); now 19 ms (bound 200 ms).
+    #[test]
+    fn with_nothing_chosen_a_change_of_one_row_costs_no_walk_of_the_list() {
+        crate::testing::with_widgets(|| {
+            const N: u32 = 10_000;
+            let (_tmp, state, _deck, _ids) = crate::testing::state_with_many_cards(N as usize);
+            let page = page_over(&state, None);
+            let store = page.imp().items.get().unwrap().clone();
+            assert_eq!(store.n_items(), N);
+            let selection = page.selection();
+            assert!(!selection.active());
+            let (cpu, ()) = crate::testing::cpu_time_of(|| {
+                for k in 0..1_000 {
+                    let p = (k * 7) % N;
+                    let item = page.item(p).unwrap();
+                    store.splice(p, 1, &[item]);
+                    selection.update();
+                }
+            });
+            assert_eq!(store.n_items(), N);
+            assert_eq!(selection.chosen_ids().len(), 0);
+            crate::testing::print_timing("All Cards: 1,000 idle row changes", cpu);
+            crate::testing::assert_cpu_within(cpu, Duration::from_millis(200), "1,000 row changes");
+        });
+    }
+
+    /// Hardening round 4 (ADR 0073): Ctrl+A on 10,000 cards. Choosing them
+    /// all is quick (CPU time, ADR 0049), the header counts them, the list
+    /// still builds only the rows on screen, and Delete on all of them and
+    /// its Undo work.
+    #[test]
+    fn ctrl_a_on_ten_thousand_cards_is_quick_and_its_bulk_action_undoes() {
+        crate::testing::with_widgets(|| {
+            const N: usize = 10_000;
+            let (_tmp, state, _deck, ids) = crate::testing::state_with_many_cards(N);
+            let page = page_over(&state, None);
+            let window = gtk::Window::builder()
+                .default_width(800)
+                .default_height(600)
+                .child(&page)
+                .build();
+            window.present();
+            let settle = crate::testing::settle;
+            settle();
+            // GTK builds the rows on screen and a margin around them, never
+            // one per card.
+            let built = count_rows(page.upcast_ref());
+            assert!((1..1_000).contains(&built), "{built} rows");
+            gtk::prelude::GtkWindowExt::set_focus(&window, Some(&*page.imp().card_list));
+
+            let (choose, pressed) =
+                crate::testing::cpu_time_of(|| press_select_all(&page, gtk::gdk::Key::a));
+            assert!(pressed);
+            let selection = page.selection();
+            assert_eq!(selection.chosen_ids().len(), N);
+            assert_eq!(selection.header().title(), "10,000 Selected");
+            settle();
+            assert!(count_rows(page.upcast_ref()) <= built, "no row per card");
+
+            let chosen = selection.chosen_ids();
+            let (delete, _) = crate::testing::cpu_time_of(|| selection.run(&chosen, Bulk::Delete));
+            assert!(!selection.active(), "selection mode ends");
+            assert_eq!(page.ids().len(), 0);
+            assert!(state.card(&ids[0]).is_err());
+            let (undo, ()) = crate::testing::cpu_time_of(|| selection.undo_last());
+            assert_eq!(page.ids().len(), N);
+            assert!(state.card(&ids[N - 1]).is_ok());
+            window.destroy();
+
+            crate::testing::print_timing("All Cards: Ctrl+A on 10,000", choose);
+            crate::testing::print_timing("All Cards: delete 10,000", delete);
+            crate::testing::print_timing("All Cards: undo the delete", undo);
+            crate::testing::assert_cpu_within(choose, Duration::from_secs(1), "Ctrl+A");
+            crate::testing::assert_cpu_within(delete, Duration::from_secs(5), "delete");
+            crate::testing::assert_cpu_within(undo, Duration::from_secs(5), "undo");
+        });
+    }
+
     /// Five thousand cards: the page loads, searches and filters within a
     /// bound, and the list only builds the rows that fit on screen.
     #[test]
@@ -1965,12 +2049,6 @@ mod tests {
     }
 
     fn count_rows(widget: &gtk::Widget) -> usize {
-        let mut n = usize::from(widget.is::<CardRow>());
-        let mut child = widget.first_child();
-        while let Some(c) = child {
-            n += count_rows(&c);
-            child = c.next_sibling();
-        }
-        n
+        crate::testing::descendants::<CardRow>(widget).len()
     }
 }

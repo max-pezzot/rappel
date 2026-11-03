@@ -222,3 +222,189 @@ fn a_name_an_archived_deck_has_is_a_conflict() {
         [Conflict::DeckNameTaken { existing_id, .. }] if *existing_id == own
     ));
 }
+
+/// What a case of `odd_archived_at_texts_are_refused_and_write_nothing`
+/// expects of the refusal.
+type Expected = Box<dyn Fn(&ImportProblem) -> bool>;
+
+/// `bytes` with its `cards.json` text changed by `f`, archived again.
+fn with_text(bytes: &[u8], f: impl Fn(&str) -> String) -> Vec<u8> {
+    let text = String::from_utf8(read_cards_json(bytes, &Limits::DEFAULT).unwrap()).unwrap();
+    write_archive(f(&text).as_bytes()).unwrap()
+}
+
+/// Hardening round 4 (ADR 0073): `archived_at` written in every odd way
+/// the JSON text allows, beyond the values of
+/// `every_other_value_is_refused_as_the_field`. Each is refused as the
+/// field, as malformed JSON for what is not one value, or read as the
+/// timestamp it is; a refusal writes nothing into a database that has
+/// data (no row, no backup).
+#[test]
+fn odd_archived_at_texts_are_refused_and_write_nothing() {
+    let (source, ..) = env_with_decks();
+    let file = source.export();
+    let null = "\"archived_at\": null,";
+    // The second deck in the file is "Physics", not archived.
+    let at = |value: &str| {
+        let value = value.to_owned();
+        with_text(&file, move |t| {
+            t.replacen(null, &format!("\"archived_at\": {value},"), 1)
+        })
+    };
+    let not_a_time = |index| ImportProblem::InvalidField {
+        table: "decks",
+        index,
+        field: "archived_at",
+        reason: FieldProblem::NotATimestamp,
+    };
+    let out_of_range = |index| ImportProblem::InvalidField {
+        table: "decks",
+        index,
+        field: "archived_at",
+        reason: FieldProblem::TimestampOutOfRange,
+    };
+    let index = json_of(&file)["decks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .position(|d| d["archived_at"].is_null())
+        .unwrap();
+    let mut target = Env::new();
+    let (deck, _) = sample(&mut target.store);
+    let before = crate::test_support::dump(&target.store);
+    let backups = target.backups();
+    let cases: Vec<(Vec<u8>, Expected)> = vec![
+        (
+            at(&i64::MAX.to_string()),
+            Box::new(move |p| *p == out_of_range(index)),
+        ),
+        (at("1e3"), Box::new(move |p| *p == not_a_time(index))),
+        (at("-0.0"), Box::new(move |p| *p == not_a_time(index))),
+        // Past u64: serde_json reads it as a float, not a whole number.
+        (
+            at("123456789012345678901234567890"),
+            Box::new(move |p| *p == not_a_time(index)),
+        ),
+        (
+            at("1e400"),
+            Box::new(|p| matches!(p, ImportProblem::Json(_))),
+        ),
+        (
+            at("\"\\u0000\""),
+            Box::new(move |p| *p == not_a_time(index)),
+        ),
+        // A long string is read (within the reader's string bound) and
+        // refused as the field; one past the bound is refused where it is.
+        (
+            at(&format!("\"{}\"", "9".repeat(1 << 20))),
+            Box::new(move |p| *p == not_a_time(index)),
+        ),
+        (
+            at(&format!("\"{}\"", "9".repeat(7 << 20))),
+            Box::new(|p| matches!(p, ImportProblem::Json(m) if m.contains("a string longer than"))),
+        ),
+        (
+            at(&format!("{}{}", "[".repeat(5_000), "]".repeat(5_000))),
+            Box::new(|p| matches!(p, ImportProblem::Json(_))),
+        ),
+        (
+            at(&format!("[{}0]", "0,".repeat(200_000))),
+            Box::new(move |p| *p == not_a_time(index)),
+        ),
+        (
+            at("{\"archived_at\": 5, \"deleted_at\": null}"),
+            Box::new(move |p| *p == not_a_time(index)),
+        ),
+        // A key twice in one record: refused as malformed at its place,
+        // either order, never one of the two values picked (the reader
+        // words every shape error the same way, never quoting the file).
+        (
+            with_text(&file, |t| {
+                t.replacen(null, &format!("{null} \"archived_at\": 5,"), 1)
+            }),
+            Box::new(
+                |p| matches!(p, ImportProblem::Json(m) if m.starts_with("unexpected field, value or type at line")),
+            ),
+        ),
+        (
+            with_text(&file, |t| {
+                t.replacen(null, &format!("\"archived_at\": 5, {null}"), 1)
+            }),
+            Box::new(
+                |p| matches!(p, ImportProblem::Json(m) if m.starts_with("unexpected field, value or type at line")),
+            ),
+        ),
+    ];
+    for (n, (bytes, expected)) in cases.into_iter().enumerate() {
+        let problem = refused(target.plan(&bytes));
+        assert!(expected(&problem), "case {n}: {problem:?}");
+        assert!(target.import(&bytes).is_err(), "case {n}");
+        assert_eq!(crate::test_support::dump(&target.store), before, "case {n}");
+        assert_eq!(target.backups(), backups, "case {n}");
+    }
+    // `-0`: serde_json reads it as the float −0.0 (it keeps the sign), so
+    // it is not a whole number either; Rappel never writes it.
+    assert_eq!(refused(target.plan(&at("-0"))), not_a_time(index));
+    // `0` is 1970, a stamp like any other (`every_other_value_…`), and
+    // the database still has its deck.
+    assert!(target.store.deck(&deck).is_ok());
+}
+
+/// Archived decks meeting a merge: a file made before the database
+/// archived a deck and merged it away, or merged a deck into one archived
+/// since. The merged deck comes back empty with the database's flag, its
+/// cards stay where the merge put them (ADR 0066, 0067, 0068), and a
+/// second import changes nothing.
+#[test]
+fn an_archived_deck_meets_a_merge_in_the_file() {
+    // Archived, then merged away: the database's row is deleted with its
+    // stamp kept; the file (from before both) has it live and not archived.
+    let (mut env, maths, physics, stamp) = env_with_decks();
+    env.store.unarchive_deck(&maths).unwrap();
+    let before_both = env.export();
+    let stamp2 = env.store.archive_deck(&maths).unwrap().archived_at;
+    assert!(stamp2 >= Some(stamp));
+    env.store.merge_deck(&maths, &physics).unwrap();
+    let plan = env.plan(&before_both).unwrap();
+    let s = plan.summary();
+    assert_eq!(s.conflicts, []);
+    assert_eq!((s.decks.revived, s.cards_kept_in_their_deck), (1, 1));
+    env.import(&before_both).unwrap();
+    assert_eq!(archived_at(&env.store, &maths), stamp2);
+    assert_eq!(env.store.card_count(&maths).unwrap(), 0);
+    assert_eq!(env.store.card_count(&physics).unwrap(), 2);
+    assert!(env.plan(&before_both).unwrap().summary().is_noop());
+
+    // Merged into a deck archived since: the file has the target live and
+    // not archived, and the merged deck live with its card.
+    let (mut env, maths, physics, _) = env_with_decks();
+    env.store.unarchive_deck(&maths).unwrap();
+    let before = env.export();
+    env.store.merge_deck(&maths, &physics).unwrap();
+    let archived = env.store.archive_deck(&physics).unwrap().archived_at;
+    let plan = env.plan(&before).unwrap();
+    assert_eq!(plan.summary().conflicts, []);
+    env.import(&before).unwrap();
+    assert_eq!(archived_at(&env.store, &physics), archived);
+    assert_eq!(archived_at(&env.store, &maths), None);
+    assert_eq!(env.store.card_count(&physics).unwrap(), 2);
+    assert_eq!(env.store.card_count(&maths).unwrap(), 0);
+    // The archived deck is out of the deck list; the revived one is in it.
+    let listed: Vec<String> = env
+        .store
+        .list_decks(T_EXPORT, T_EXPORT)
+        .unwrap()
+        .into_iter()
+        .map(|d| d.deck.id)
+        .collect();
+    assert_eq!(listed, [maths]);
+    // A file where the archived target holds the merged cards (made after
+    // the merge and archive) into an empty database: new decks keep the
+    // file's flags.
+    let after = env.export();
+    let mut fresh = Env::new();
+    fresh.import(&after).unwrap();
+    assert_eq!(archived_at(&fresh.store, &physics), archived);
+    assert_eq!(fresh.store.card_count(&physics).unwrap(), 2);
+    assert_eq!(fresh.export(), after);
+}

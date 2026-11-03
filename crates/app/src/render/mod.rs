@@ -600,16 +600,7 @@ mod tests {
 
     /// Every label under `widget`, in order.
     fn labels_under(widget: &gtk::Widget) -> Vec<gtk::Label> {
-        let mut out = Vec::new();
-        let mut child = widget.first_child();
-        while let Some(c) = child {
-            if let Ok(label) = c.clone().downcast::<gtk::Label>() {
-                out.push(label);
-            }
-            out.extend(labels_under(&c));
-            child = c.next_sibling();
-        }
-        out
+        crate::testing::descendants(widget)
     }
 
     /// A table's grid stays as wide as its columns (the border hugs it)

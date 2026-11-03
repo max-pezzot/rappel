@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use super::time::{DAY_MS, HOUR_MS, MINUTE_MS};
 use crate::i18n::{fill, gettext, ngettext, pgettext};
+use crate::ui::toast::Message;
 
 /// A name (deck or tag) on one line: every run of whitespace, such as a
 /// line break in a pasted name, as one space. Plain text, never markup.
@@ -121,8 +122,11 @@ pub fn tenths(n: usize) -> String {
 /// "“Spanish” could not be restored: …": an Undo that brought a deck back
 /// failed with `err` (Delete Deck's, and Merge Into…'s for the errors it
 /// does not word itself).
-pub fn not_restored(name: &str, err: &rappel_core::Error) -> String {
-    fill(
+///
+/// A [`Message`]: its title ends at the template's ":", never at one in
+/// the deck's name.
+pub fn not_restored(name: &str, err: &rappel_core::Error) -> Message {
+    Message::from_template(
         // Translators: a toast: what is before ":" is its title, the
         // rest is behind Details. {name} is a deck's name, {error}
         // why, in English.

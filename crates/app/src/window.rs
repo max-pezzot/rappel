@@ -1137,6 +1137,96 @@ mod tests {
         });
     }
 
+    /// Hardening round 4 (ADR 0073): archive and unarchive racing an open
+    /// deck page. The deck's page has a study session open over it when
+    /// the Undo of an older "Deck unarchived" archives the deck: both pages
+    /// leave for the deck list, leaving writes no log entry, and a
+    /// second Undo (the toast pressed again) changes nothing. Then the deck
+    /// is unarchived and archived again from its page in a row, as fast as
+    /// the code allows: one stamp, the list right each time.
+    #[test]
+    fn archiving_races_with_an_open_deck_page_and_its_session() {
+        crate::testing::with_widgets(|| {
+            let (window, page, _tmp) = reopened_with(3);
+            let imp = window.imp();
+            imp.navigation_view.set_animate_transitions(false);
+            let state = imp.state.get().unwrap().clone();
+            let id = page.deck_id().unwrap();
+            let other = state.create_deck("Other").unwrap();
+            page.activate_action("deck.study", None).unwrap();
+            let on_review = || {
+                imp.navigation_view
+                    .visible_page()
+                    .is_some_and(|p| p.is::<ReviewPage>())
+            };
+            assert!(crate::testing::settle_until(
+                on_review,
+                Duration::from_secs(30)
+            ));
+            let log = |state: &AppState| -> usize {
+                state
+                    .list_tagged_cards(&id)
+                    .unwrap()
+                    .iter()
+                    .map(|c| state.review_events(&c.card.id).unwrap().len())
+                    .sum()
+            };
+            let before = log(&state);
+
+            window.rearchive_deck(&state, &id).unwrap();
+            let on_list = || {
+                imp.navigation_view
+                    .visible_page()
+                    .is_some_and(|p| p.is::<DecksPage>())
+            };
+            assert!(crate::testing::settle_until(
+                on_list,
+                Duration::from_secs(30)
+            ));
+            assert!(!window.pages().iter().any(ObjectExt::is::<ReviewPage>));
+            assert!(!window.pages().iter().any(ObjectExt::is::<DeckPage>));
+            let stamp = state.deck(&id).unwrap().archived_at;
+            assert!(stamp.is_some());
+            assert!(matches!(
+                window.rearchive_deck(&state, &id),
+                Err(rappel_core::Error::DeckArchived(_))
+            ));
+            assert_eq!(state.deck(&id).unwrap().archived_at, stamp);
+            // Leaving the session on the archive wrote no log entry (no answer
+            // was given in it, so this checks that leaving itself writes
+            // nothing, not that a later answer is refused).
+            assert_eq!(log(&state), before, "leaving the session wrote nothing");
+            let listed = || -> Vec<String> {
+                imp.decks_page
+                    .deck_rows()
+                    .iter()
+                    .map(crate::widgets::DeckRow::deck_id)
+                    .collect()
+            };
+            assert_eq!(listed(), std::slice::from_ref(&other.id));
+
+            // Unarchive, open the page again, archive from it at once.
+            state.unarchive_deck(&id).unwrap();
+            window.data_changed();
+            assert_eq!(listed(), [id.clone(), other.id.clone()]);
+            imp.decks_page.reopen(&id);
+            let page = imp
+                .navigation_view
+                .visible_page()
+                .and_downcast::<DeckPage>()
+                .expect("the deck's page is open again");
+            page.activate_action("deck.archive", None).unwrap();
+            assert!(crate::testing::settle_until(
+                on_list,
+                Duration::from_secs(30)
+            ));
+            assert!(state.deck(&id).unwrap().is_archived());
+            assert_eq!(listed(), std::slice::from_ref(&other.id));
+            assert!(imp.decks_page.archived_row_shown());
+            window.destroy();
+        });
+    }
+
     /// A window closed on a deck that was then archived starts on the
     /// deck list, as for a deleted deck (ADR 0068).
     #[test]

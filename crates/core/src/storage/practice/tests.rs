@@ -8,22 +8,14 @@ use rusqlite::Connection;
 
 use crate::Error;
 use crate::domain::Grade;
-use crate::scheduling::{PRACTICE_LIMIT, Practice, STEP_MS, StudyScope};
+use crate::scheduling::{PRACTICE_LIMIT, Practice, StudyScope};
 use crate::storage::{DB_FILE_NAME, Store};
 
 use super::query_only;
-use crate::test_support::{DAY_MS, T0, answer, dump, with_suffix};
+use crate::test_support::{DAY_MS, T0, answer, dump, learn, tag_id, with_suffix};
 
 /// Practice time, 40 days after the first cards were learned.
 const NOW: i64 = T0 + 40 * DAY_MS;
-
-/// Learns `card` on day `day` after `T0`: the later, the better it is
-/// remembered at `NOW` (the same history, less time since).
-fn learn(store: &mut Store, card: &str, day: i64) {
-    let at = T0 + day * DAY_MS;
-    answer(store, card, Grade::Pass, at);
-    answer(store, card, Grade::Pass, at + STEP_MS);
-}
 
 fn card(store: &mut Store, deck: &str, front: &str, tags: &[&str]) -> String {
     let tags: Vec<String> = tags.iter().map(|&t| t.to_owned()).collect();
@@ -31,16 +23,6 @@ fn card(store: &mut Store, deck: &str, front: &str, tags: &[&str]) -> String {
         .add_card_with_tags_at(deck, front, "back", &tags, T0)
         .unwrap()
         .card
-        .id
-}
-
-fn tag_id(store: &Store, name: &str) -> String {
-    store
-        .tags()
-        .unwrap()
-        .into_iter()
-        .find(|t| t.name == name)
-        .unwrap()
         .id
 }
 
@@ -408,4 +390,205 @@ fn has_practisable_agrees_with_the_queue() {
         store.has_practisable(&StudyScope::tag("not-a-tag")),
         Err(Error::TagNotFound(_))
     ));
+}
+
+/// The environment variable that makes this test binary, started again by
+/// `a_practice_killed_mid_way_leaves_the_database_clean`, the process that
+/// practises and is killed: the data folder to open.
+const KILLED_CHILD: &str = "RAPPEL_TEST_PRACTICE_CHILD";
+
+/// What the next start of the app checks: the database opens (no
+/// recovery page: `Store::open` refuses a damaged or half-restored one),
+/// SQLite's own `integrity_check` says "ok", and the content is `dump`.
+fn assert_opens_clean(data: &Path, dump_before: &[(String, Vec<String>)]) {
+    let mut store = Store::open(data).unwrap();
+    let check: String = store
+        .conn
+        .query_row("PRAGMA integrity_check", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(check, "ok");
+    assert_eq!(store.take_open_warnings().len(), 0);
+    assert_eq!(dump(&store), dump_before);
+}
+
+/// Hardening round 4 (ADR 0073): a practice whose process is killed
+/// (SIGKILL, as a crash or a power cut leaves it: no destructor, no
+/// unwinding) part-way. The test binary starts itself again as the app
+/// would run: it opens the database, practises (reads the queue, answers
+/// some cards), says so, and waits to be killed. The database files are
+/// byte-identical to what they were once it had opened them, and the
+/// next open is clean.
+#[test]
+fn a_practice_killed_mid_way_leaves_the_database_clean() {
+    use std::io::{BufRead, BufReader, Read};
+    use std::process::{Command, Stdio};
+
+    if let Some(data) = std::env::var_os(KILLED_CHILD) {
+        let store = Store::open(Path::new(&data)).unwrap();
+        println!("OPENED");
+        let spanish = store.decks().unwrap()[0].id.clone();
+        let mut practice = Practice::new(
+            store
+                .practice_queue(&StudyScope::deck(&spanish), NOW)
+                .unwrap(),
+        );
+        for grade in [Grade::Fail, Grade::Pass, Grade::Fail] {
+            let id = practice.next().unwrap().to_owned();
+            store.card(&id).unwrap();
+            practice.graded(&id, grade, Duration::from_secs(1));
+        }
+        practice.undo_last().unwrap();
+        assert!(practice.remaining() > 0);
+        println!("PRACTISING");
+        // Wait to be killed: the parent never writes to stdin.
+        let _ = std::io::stdin().read(&mut [0]);
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tmp.path().to_path_buf();
+    let db = data.join(DB_FILE_NAME);
+    let dump_before = {
+        let mut store = Store::open(&data).unwrap();
+        fixture(&mut store);
+        dump(&store)
+    };
+    let exe = std::env::current_exe().expect("the test binary has a path");
+    let mut child = Command::new(exe)
+        .args([
+            "--exact",
+            "storage::practice::tests::a_practice_killed_mid_way_leaves_the_database_clean",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(KILLED_CHILD, &data)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("the test binary runs again");
+    let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+    let mut wait_for = |word: &str| {
+        for line in lines.by_ref() {
+            if line.unwrap().contains(word) {
+                return;
+            }
+        }
+        panic!("the child ended before {word}");
+    };
+    wait_for("OPENED");
+    // The files once the app has opened them (its open may checkpoint).
+    let store_view = Store::open_concurrent(&data).unwrap();
+    let opened = snapshot(&store_view, &db);
+    drop(store_view);
+    wait_for("PRACTISING");
+    child.kill().unwrap();
+    let status = child.wait().unwrap();
+    assert!(!status.success(), "killed, not finished");
+    let killed = {
+        let store_view = Store::open_concurrent(&data).unwrap();
+        snapshot(&store_view, &db)
+    };
+    assert_eq!(killed, opened);
+    assert_opens_clean(&data, &dump_before);
+}
+
+/// A practice whose thread panics part-way (a bug in the page): the store
+/// is dropped as the panic unwinds, nothing was written, and the next
+/// open is clean. With the drop of `a_practice_dropped_part_way_…` and
+/// the kill above, every way a practice can end early.
+#[test]
+fn a_practice_whose_thread_panics_leaves_the_database_clean() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tmp.path().to_path_buf();
+    let db = data.join(DB_FILE_NAME);
+    let mut store = Store::open(&data).unwrap();
+    let (spanish, _) = fixture(&mut store);
+    let before = snapshot(&store, &db);
+    let thread = std::thread::spawn(move || {
+        let mut practice = Practice::new(
+            store
+                .practice_queue(&StudyScope::deck(&spanish), NOW)
+                .unwrap(),
+        );
+        let id = practice.next().unwrap().to_owned();
+        practice.graded(&id, Grade::Fail, Duration::from_secs(1));
+        // The store goes down with the thread.
+        panic!("the practice went wrong with {} left", practice.remaining());
+    });
+    assert!(thread.join().is_err());
+    // The thread's connection is closed: the files as they were (closing
+    // the last connection checkpoints the log into the main file, so the
+    // content is compared, not the bytes).
+    assert_opens_clean(&data, &before.dump);
+}
+
+/// Hardening round 4 (ADR 0073): `query_only` nested in itself (a read
+/// inside a read) stays on until the outer one ends, and is off after it.
+#[test]
+fn a_nested_practice_read_keeps_query_only_on_for_the_outer_one() {
+    let mut store = Store::in_memory();
+    let (spanish, _) = fixture(&mut store);
+    let inner_then_write = query_only(&store.conn, |conn| {
+        let queue = query_only(conn, |_| Ok(1))?;
+        // Still on: the inner guard put back what it found.
+        let still: bool = conn.query_row("PRAGMA query_only", [], |r| r.get(0))?;
+        assert!(still);
+        conn.execute("DELETE FROM decks", [])?;
+        Ok(queue)
+    });
+    assert!(matches!(
+        inner_then_write,
+        Err(Error::Sqlite(rusqlite::Error::SqliteFailure(e, _))) if e.code == rusqlite::ErrorCode::ReadOnly
+    ));
+    assert!(!is_query_only(&store));
+    store
+        .practice_queue(&StudyScope::deck(&spanish), NOW)
+        .unwrap();
+    store.create_deck_at("After", T0).unwrap();
+}
+
+/// Hardening round 4 (ADR 0073): a damaged schedule cache (a hand-edited
+/// or damaged database: the cache is never imported, only rebuilt) with
+/// values FSRS never gives: zero, negative and infinite stability or
+/// difficulty, a last review far in the future or at the start of time.
+/// The practice still lists every card, in a deterministic order, and
+/// never panics; nothing is written.
+#[test]
+fn a_damaged_schedule_cache_never_breaks_a_practice() {
+    let mut store = Store::in_memory();
+    let deck = store.create_deck_at("Damaged", T0).unwrap().id;
+    let values: [(f64, f64, i64); 7] = [
+        (0.0, 5.0, T0),
+        (-1.0, 5.0, T0),
+        (f64::INFINITY, 5.0, T0),
+        (f64::NEG_INFINITY, f64::INFINITY, T0),
+        (1.0, -100.0, i64::MAX),
+        (1.0, 5.0, i64::MIN),
+        (f64::MAX, f64::MIN_POSITIVE, NOW + 1),
+    ];
+    let mut ids = Vec::new();
+    for (i, (stability, difficulty, last)) in values.iter().enumerate() {
+        let id = card(&mut store, &deck, &format!("card {i}"), &[]);
+        learn(&mut store, &id, 0);
+        store
+            .conn
+            .execute(
+                "UPDATE card_schedule SET stability = ?2, difficulty = ?3, last_review_at = ?4
+                 WHERE card_id = ?1",
+                rusqlite::params![id, stability, difficulty, last],
+            )
+            .unwrap();
+        ids.push(id);
+    }
+    let before = dump(&store);
+    let scope = StudyScope::deck(&deck);
+    let queue = store.practice_queue(&scope, NOW).unwrap();
+    let mut sorted = queue.clone();
+    sorted.sort();
+    let mut expected = ids.clone();
+    expected.sort();
+    assert_eq!(sorted, expected);
+    assert_eq!(store.practice_queue(&scope, NOW).unwrap(), queue);
+    assert!(store.has_practisable(&scope).unwrap());
+    assert_eq!(dump(&store), before);
 }

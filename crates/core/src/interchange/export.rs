@@ -411,7 +411,8 @@ pub struct MediaTotals {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MediaOverLimit {
     /// The archive would take at least `at_least` bytes
-    /// ([`export_size_at_least`]), more than [`MAX_ARCHIVE_BYTES`].
+    /// (`export_size_at_least`), more than the 2 GiB an import reads
+    /// (`MAX_ARCHIVE_BYTES`).
     Size {
         /// The least the archive would take.
         at_least: u64,
@@ -443,7 +444,7 @@ const ARCHIVE_OVERHEAD: u64 = (30 + 46 + 12) + (30 + 46 + 20) + 22;
 /// repeated keys and ids many times), which would turn away exports that
 /// import fine (ADR 0071).
 #[must_use]
-pub fn export_size_at_least(media: MediaTotals) -> u64 {
+pub(crate) fn export_size_at_least(media: MediaTotals) -> u64 {
     let files = u64::try_from(media.files).unwrap_or(u64::MAX);
     media
         .bytes
@@ -452,8 +453,8 @@ pub fn export_size_at_least(media: MediaTotals) -> u64 {
 }
 
 /// Why an import would refuse an export with `media`, for what leaving the
-/// media out mends, or `None`: [`export_size_at_least`] past
-/// [`MAX_ARCHIVE_BYTES`], else more entries (the media files, `cards.json`
+/// media out mends, or `None`: `export_size_at_least` past the 2 GiB an
+/// import reads (`MAX_ARCHIVE_BYTES`), else more entries (the media files, `cards.json`
 /// and `media/`) than an import reads. Both are lower bounds, so a `Some`
 /// is always right for the media the database lists (a file missing from
 /// the media folder is left out of the export, which is then smaller).
