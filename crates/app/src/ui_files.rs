@@ -88,6 +88,15 @@ const CHECKS: &[(&str, Load)] = &[
             loads("discard_dialog", dialog::DISCARD_CHANGES.load().err());
         }),
     ),
+    (
+        "export_media_dialog.blp",
+        Load::Plain(|| {
+            loads(
+                "export_media_dialog",
+                dialog::EXPORT_WITHOUT_MEDIA.load().err(),
+            );
+        }),
+    ),
     ("history_row.blp", Load::Template(template::<HistoryRow>)),
     (
         "image_dialog.blp",

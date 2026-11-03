@@ -609,3 +609,220 @@ fn a_media_row_rappel_cannot_name_counts_as_missing() {
     assert_eq!((summary.media, summary.missing_media), (2, 1));
     Env::new().import(&bytes).unwrap();
 }
+
+// ---- Exports without media (ADR 0071) ----
+
+fn without_media() -> ExportOptions {
+    ExportOptions {
+        include_media: false,
+    }
+}
+
+/// An export without media has `cards.json` and `media/` alone, an empty
+/// media list and no media record, as one with no media in the database;
+/// every card keeps its text, `media:` references included.
+#[test]
+fn an_export_without_media_holds_none() {
+    let (env, png, wav) = media_env();
+    let (bytes, summary) = env
+        .store
+        .export_bytes_with(T_EXPORT, without_media())
+        .unwrap();
+    assert_eq!(names_of(&bytes), ["cards.json", "media/"]);
+    assert_eq!(json_of(&bytes)["media"], json!([]));
+    assert_eq!(
+        (summary.media, summary.media_left_out, summary.missing_media),
+        (0, 2, 0)
+    );
+    // The cards name files that are not in it.
+    let doc = json_of(&bytes);
+    let fronts: Vec<&str> = doc["cards"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|c| c["front_md"].as_str())
+        .collect();
+    assert!(
+        fronts.iter().any(|f| f.contains(&png.reference())),
+        "{fronts:?}"
+    );
+    let backs: Vec<&str> = doc["cards"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|c| c["back_md"].as_str())
+        .collect();
+    assert!(
+        backs.iter().any(|b| b.contains(&wav.reference())),
+        "{backs:?}"
+    );
+    // The default and a request for everything are the export as before.
+    assert_eq!(
+        env.store
+            .export_bytes_with(T_EXPORT, ExportOptions::default())
+            .unwrap()
+            .0,
+        env.export()
+    );
+    assert!(ExportOptions::default().include_media);
+}
+
+/// It imports into an empty database (cards, tags and log as the full
+/// export has them, no media row, no file), and exporting that again
+/// without media gives the same bytes: a round trip.
+#[test]
+fn an_export_without_media_imports_and_round_trips() {
+    let (env, _, _) = media_env();
+    let bytes = env
+        .store
+        .export_bytes_with(T_EXPORT, without_media())
+        .unwrap()
+        .0;
+    let mut target = Env::new();
+    let plan = target.plan(&bytes).unwrap();
+    assert_eq!(plan.summary().media.new, 0);
+    assert_eq!(plan.summary().conflicts, Vec::new());
+    let report = target.import(&bytes).unwrap();
+    assert_eq!(report.media, 0);
+    assert_eq!(media_rows(&target), []);
+    assert_eq!(folder(&target), []);
+    assert_eq!(
+        target
+            .store
+            .export_bytes_with(T_EXPORT, without_media())
+            .unwrap()
+            .0,
+        bytes
+    );
+    // Everything but the media is what the full export holds.
+    let mut full = json_of(&env.export());
+    let left = json_of(&bytes);
+    full["media"] = json!([]);
+    assert_eq!(full, left);
+    // Into a database that has the files, it adds nothing and conflicts
+    // with nothing.
+    let mut same = Env::new();
+    same.import(&env.export()).unwrap();
+    assert!(same.plan(&bytes).unwrap().summary().is_noop());
+}
+
+/// Two exports of the same database without media at the same time are
+/// the same bytes, and `export_to_with` writes the file the bytes are.
+#[test]
+fn an_export_without_media_is_deterministic() {
+    let (env, _, _) = media_env();
+    let a = env
+        .store
+        .export_bytes_with(T_EXPORT, without_media())
+        .unwrap()
+        .0;
+    let b = env
+        .store
+        .export_bytes_with(T_EXPORT, without_media())
+        .unwrap()
+        .0;
+    assert_eq!(a, b);
+    let path = env.tmp.path().join("none.rappel");
+    let summary = env.store.export_to_with(&path, without_media()).unwrap();
+    assert_eq!((summary.media, summary.media_left_out), (0, 2));
+    assert_eq!(
+        names_of(&fs::read(&path).unwrap()),
+        ["cards.json", "media/"]
+    );
+    assert_eq!(
+        Env::new()
+            .store
+            .plan_import(&path)
+            .unwrap()
+            .summary()
+            .media
+            .new,
+        0
+    );
+}
+
+/// The totals the app asks for before an export.
+#[test]
+fn the_media_totals_are_the_sizes_the_rows_record() {
+    let (env, png, wav) = media_env();
+    let totals = env.store.media_totals().unwrap();
+    let size = |m: &MediaRef| {
+        fs::metadata(env.store.media_path(m).unwrap())
+            .unwrap()
+            .len()
+    };
+    assert_eq!(totals.files, 2);
+    assert_eq!(totals.bytes, size(&png) + size(&wav));
+    assert_eq!(
+        Env::new().store.media_totals().unwrap(),
+        MediaTotals { bytes: 0, files: 0 }
+    );
+}
+
+/// The decision, at its exact boundary: the media and their entries' headers
+/// and the archive's own add up to more than 2 GiB.
+#[test]
+fn media_too_large_for_import_is_decided_at_the_exact_boundary() {
+    let limit = MAX_ARCHIVE_BYTES;
+    assert_eq!(limit, 2 << 30);
+    let totals = |bytes, files| MediaTotals { bytes, files };
+    // No media: never.
+    assert!(!media_too_large_for_import(totals(0, 0)));
+    // No file entries: only the fixed bytes of the archive count (206).
+    let fixed = limit - 206;
+    assert!(!media_too_large_for_import(totals(fixed, 0)));
+    assert!(media_too_large_for_import(totals(fixed + 1, 0)));
+    // Each file adds its two headers and names (226).
+    let per_file = 226;
+    let room = limit - 206 - 3 * per_file;
+    assert!(!media_too_large_for_import(totals(room, 3)));
+    assert!(media_too_large_for_import(totals(room + 1, 3)));
+    // The archive would be the limit and no more: it still imports (the
+    // import refuses only a file larger than the limit).
+    // Numbers that overflow are too large, not wrapped.
+    assert!(media_too_large_for_import(totals(u64::MAX, usize::MAX)));
+    // A real export's headers are no more than the constants say: the
+    // sample's own file is the same size as its parts.
+    let (env, _, _) = media_env();
+    let (bytes, _) = env.store.export_bytes_at(T_EXPORT).unwrap();
+    let json = read_cards_json(&bytes, &Limits::DEFAULT).unwrap().len() as u64;
+    let totals = env.store.media_totals().unwrap();
+    let estimate = totals.bytes + totals.files as u64 * per_file + 206;
+    assert!(
+        bytes.len() as u64 <= estimate + json,
+        "{} > {estimate} + {json}",
+        bytes.len()
+    );
+}
+
+/// A file that came out larger than an import reads (what the estimate
+/// cannot know: the text) is not kept, and the file there stays as it was.
+#[test]
+fn an_export_larger_than_an_import_reads_is_not_kept() {
+    let (env, _, _) = media_env();
+    let path = env.tmp.path().join("big.rappel");
+    env.store.export_to(&path).unwrap();
+    // The time written in the file may differ by a digit between runs.
+    let size = fs::metadata(&path).unwrap().len();
+    fs::write(&path, b"old").unwrap();
+    let limit = size - 50;
+    let err = env
+        .store
+        .export_to_limited(&path, ExportOptions::default(), limit)
+        .unwrap_err();
+    assert!(
+        matches!(err, Error::ExportTooLarge { bytes, limit: l } if l == limit && bytes.abs_diff(size) <= 2),
+        "{err:?}"
+    );
+    assert_eq!(fs::read(&path).unwrap(), b"old");
+    assert!(!format::partial(&path).exists());
+    // Within the limit it is kept (the limit itself is not a refusal: only
+    // a file larger than it is).
+    env.store
+        .export_to_limited(&path, ExportOptions::default(), size + 50)
+        .unwrap();
+    let kept = fs::metadata(&path).unwrap().len();
+    env.store
+        .export_to_limited(&path, ExportOptions::default(), kept + 2)
+        .unwrap();
+}

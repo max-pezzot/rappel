@@ -34,6 +34,7 @@ msgstr ""
 #: crates/app/data/clean_up_media_dialog.blp
 #: crates/app/data/deck_name_dialog.blp
 #: crates/app/data/delete_card_dialog.blp
+#: crates/app/data/export_media_dialog.blp
 #: crates/app/data/import_dialog.blp
 #: crates/app/data/merge_deck_dialog.blp
 #: crates/app/data/restore_dialog.blp
@@ -440,6 +441,14 @@ msgstr ""
 
 #: crates/app/data/discard_dialog.blp
 msgid "_Discard"
+msgstr ""
+
+#: crates/app/data/export_media_dialog.blp
+msgid "Export Without Media?"
+msgstr ""
+
+#: crates/app/data/export_media_dialog.blp
+msgid "_Export Without Media"
 msgstr ""
 
 #: crates/app/data/import_dialog.blp
@@ -2501,6 +2510,18 @@ msgid "Media file left out. Exported to “{name}”, without {count} media file
 msgid_plural "Media files left out. Exported to “{name}”, without {count} media files that are missing or damaged"
 msgstr[0] ""
 msgstr[1] ""
+
+#. Translators: a toast: its first sentence is its title, the rest is behind Details. {name} is the file's name, {count} a number of media files (images, sounds).
+#: crates/app/src/transfer/text.rs
+msgid "Media left out. Exported to “{name}” without its {count} media file"
+msgid_plural "Media left out. Exported to “{name}” without its {count} media files"
+msgstr[0] ""
+msgstr[1] ""
+
+#. Translators: the body of a question. {size} is a size such as "2.4 GiB". An import reads at most 2 GiB from one file.
+#: crates/app/src/transfer/text.rs
+msgid "The media files add up to {size}, more than the 2 GiB that Rappel reads from one file. An export with them could not be imported again by Rappel. Export without them instead? Decks, cards and their history are exported; the media files stay where they are, and cards keep their references to them."
+msgstr ""
 
 #: crates/app/src/transfer/text.rs
 msgid "Early test version. This file was made by an early test version of Rappel and cannot be imported"

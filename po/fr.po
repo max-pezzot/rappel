@@ -36,6 +36,7 @@ msgstr "_Restaurer"
 #: crates/app/data/clean_up_media_dialog.blp
 #: crates/app/data/deck_name_dialog.blp
 #: crates/app/data/delete_card_dialog.blp
+#: crates/app/data/export_media_dialog.blp
 #: crates/app/data/import_dialog.blp
 #: crates/app/data/merge_deck_dialog.blp
 #: crates/app/data/restore_dialog.blp
@@ -443,6 +444,14 @@ msgstr "_Continuer la modification"
 #: crates/app/data/discard_dialog.blp
 msgid "_Discard"
 msgstr "_Abandonner"
+
+#: crates/app/data/export_media_dialog.blp
+msgid "Export Without Media?"
+msgstr "Exporter sans les médias ?"
+
+#: crates/app/data/export_media_dialog.blp
+msgid "_Export Without Media"
+msgstr "_Exporter sans les médias"
 
 #: crates/app/data/import_dialog.blp
 msgid "_Import"
@@ -2503,6 +2512,18 @@ msgid "Media file left out. Exported to “{name}”, without {count} media file
 msgid_plural "Media files left out. Exported to “{name}”, without {count} media files that are missing or damaged"
 msgstr[0] "Fichier omis. Exporté dans « {name} », sans {count} fichier multimédia manquant ou abîmé"
 msgstr[1] "Fichiers omis. Exporté dans « {name} », sans {count} fichiers multimédias manquants ou abîmés"
+
+#. Translators: a toast: its first sentence is its title, the rest is behind Details. {name} is the file's name, {count} a number of media files (images, sounds).
+#: crates/app/src/transfer/text.rs
+msgid "Media left out. Exported to “{name}” without its {count} media file"
+msgid_plural "Media left out. Exported to “{name}” without its {count} media files"
+msgstr[0] "Médias exclus. Exporté dans « {name} » sans ses {count} fichier média"
+msgstr[1] "Médias exclus. Exporté dans « {name} » sans ses {count} fichiers médias"
+
+#. Translators: the body of a question. {size} is a size such as "2.4 GiB". An import reads at most 2 GiB from one file.
+#: crates/app/src/transfer/text.rs
+msgid "The media files add up to {size}, more than the 2 GiB that Rappel reads from one file. An export with them could not be imported again by Rappel. Export without them instead? Decks, cards and their history are exported; the media files stay where they are, and cards keep their references to them."
+msgstr "Les fichiers médias font {size} en tout, soit plus que les 2 Gio que Rappel lit dans un seul fichier. Un export qui les contiendrait ne pourrait pas être réimporté par Rappel. Exporter plutôt sans eux ? Les paquets, les cartes et leur historique sont exportés ; les fichiers médias restent où ils sont, et les cartes gardent leurs références à ces fichiers."
 
 #: crates/app/src/transfer/text.rs
 msgid "Early test version. This file was made by an early test version of Rappel and cannot be imported"

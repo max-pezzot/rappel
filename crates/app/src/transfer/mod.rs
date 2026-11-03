@@ -22,6 +22,7 @@ use gtk::{gio, glib};
 use rappel_core::Error;
 use rappel_core::interchange::{
     ANKI_EXTENSIONS, FILE_EXTENSION, FileKind, IMPORT_EXTENSIONS, ImportPlan, ImportSummary,
+    media_too_large_for_import,
 };
 
 use crate::state::AppState;
@@ -33,11 +34,19 @@ use names::Names;
 use progress::Progress;
 use text::{
     check_failed_text, checking_text, conflicts_text, export_file_name, exported_text,
-    import_failed_text, imported_text, plan_view, refused_text,
+    exported_without_media_text, import_failed_text, imported_text, plan_view, refused_text,
+    without_media_body,
 };
 
-/// Asks where to save, then exports there on a worker thread.
+/// Asks where to save, then exports there on a worker thread. If the media
+/// would make the file larger than an import reads, asks first (before
+/// anything is chosen or written) whether to export without them.
 pub async fn export(window: &RappelWindow, state: &AppState) {
+    let include_media = match media_choice(window, state).await {
+        MediaChoice::With => true,
+        MediaChoice::Without => false,
+        MediaChoice::Cancel => return,
+    };
     let (year, month, day) = glib::DateTime::now_local().map_or((0, 0, 0), |now| now.ymd());
     let dialog = file_dialog(&gettext("Export Data"), &[FILE_EXTENSION]);
     dialog.set_initial_name(Some(&export_file_name(year, month, day)));
@@ -48,17 +57,22 @@ pub async fn export(window: &RappelWindow, state: &AppState) {
     let data_dir = state.data_dir().to_path_buf();
     let worker_path = path.clone();
     let result = worker::run(window, move || {
-        AppState::export_on_worker(&data_dir, &worker_path)
+        AppState::export_on_worker(&data_dir, &worker_path, include_media)
     })
     .await;
     match result {
         Ok(Ok(summary)) => {
-            let text = exported_text(&path, summary.missing_media);
-            // Lost media files are worth reading, so that toast stays.
-            let toast = if summary.missing_media > 0 {
-                persistent_toast(&text)
+            // Lost media files are worth reading, so that toast stays; so
+            // does the one that says the file has none on purpose.
+            let toast = if include_media {
+                let text = exported_text(&path, summary.missing_media);
+                if summary.missing_media > 0 {
+                    persistent_toast(&text)
+                } else {
+                    info_toast(&text)
+                }
             } else {
-                info_toast(&text)
+                persistent_toast(&exported_without_media_text(&path, summary.media_left_out))
             };
             window.add_toast(toast);
         }
@@ -78,6 +92,49 @@ pub async fn export(window: &RappelWindow, state: &AppState) {
             &gettext("The export stopped unexpectedly"),
         ),
     }
+}
+
+/// What the export does about the media.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MediaChoice {
+    /// Export them, as always.
+    With,
+    /// Leave them out.
+    Without,
+    /// Do not export.
+    Cancel,
+}
+
+/// What an answer of "Export Without Media?" means: only its button.
+fn media_choice_of(response: &str) -> MediaChoice {
+    if response == "without_media" {
+        MediaChoice::Without
+    } else {
+        MediaChoice::Cancel
+    }
+}
+
+/// Asks, before anything is written, if the media alone make the file
+/// larger than an import reads (2 GiB, ADR 0071). Cancel is the default
+/// response and the way out, so Enter and Escape never export. If the
+/// media cannot be added up, the export goes on as always: it checks the
+/// file it wrote.
+async fn media_choice(window: &RappelWindow, state: &AppState) -> MediaChoice {
+    let totals = match state.media_totals() {
+        Ok(totals) => totals,
+        Err(err) => {
+            tracing::warn!("cannot add up the media before an export: {err}");
+            return MediaChoice::With;
+        }
+    };
+    if !media_too_large_for_import(totals) {
+        return MediaChoice::With;
+    }
+    let Ok(dialog) = dialog::EXPORT_WITHOUT_MEDIA.load() else {
+        return MediaChoice::Cancel;
+    };
+    dialog.set_body(&without_media_body(totals.bytes));
+    media_choice_of(&dialog.choose_future(Some(window)).await)
 }
 
 /// Asks for a file, checks it on a worker thread, shows what it would do,
@@ -283,5 +340,41 @@ fn chosen_path(window: &RappelWindow, chosen: Result<gio::File, glib::Error>) ->
             );
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Only the Export Without Media button exports without them: Cancel,
+    /// Escape (the close response) and anything else do not export.
+    #[test]
+    fn only_its_button_exports_without_media() {
+        assert_eq!(media_choice_of("without_media"), MediaChoice::Without);
+        assert_eq!(media_choice_of("cancel"), MediaChoice::Cancel);
+        assert_eq!(media_choice_of("close"), MediaChoice::Cancel);
+        assert_eq!(media_choice_of(""), MediaChoice::Cancel);
+    }
+
+    /// Enter and Escape are Cancel (the default and the close response),
+    /// the other response is the button, and nothing is written before
+    /// the answer.
+    #[test]
+    fn the_question_defaults_to_cancel_and_its_button_names_what_it_does() {
+        crate::testing::with_widgets(|| {
+            let dialog = dialog::EXPORT_WITHOUT_MEDIA.load().unwrap();
+            assert_eq!(dialog.default_response().as_deref(), Some("cancel"));
+            assert_eq!(dialog.close_response(), "cancel");
+            assert_eq!(
+                dialog.response_label("without_media"),
+                "_Export Without Media"
+            );
+            assert_eq!(dialog.response_label("cancel"), "_Cancel");
+            assert_eq!(
+                dialog.response_appearance("without_media"),
+                adw::ResponseAppearance::Default
+            );
+        });
     }
 }

@@ -75,6 +75,49 @@ pub(super) fn exported_text(path: &Path, missing_media: usize) -> String {
     }
 }
 
+/// The export's toast when it was made without media on purpose: the
+/// file's name and how many media files stayed out (the database's own
+/// rows, not ones that were missing). Lasts: it says what the file lacks.
+pub(super) fn exported_without_media_text(path: &Path, left_out: usize) -> String {
+    if left_out == 0 {
+        return exported_text(path, 0);
+    }
+    let name = path.file_name().map_or_else(
+        || path.display().to_string(),
+        |n| n.to_string_lossy().into_owned(),
+    );
+    fill(
+        // Translators: a toast: its first sentence is its title, the rest
+        // is behind Details. {name} is the file's name, {count} a number
+        // of media files (images, sounds).
+        &ngettext(
+            "Media left out. Exported to “{name}” without its {count} media file",
+            "Media left out. Exported to “{name}” without its {count} media files",
+            left_out,
+        ),
+        &[("name", &name), ("count", &group_digits(left_out))],
+    )
+}
+
+/// The body of "Export Without Media?": what the media add up to
+/// (`media_bytes`) and why that matters, in the user's units.
+pub(super) fn without_media_body(media_bytes: u64) -> String {
+    fill(
+        // Translators: the body of a question. {size} is a size such as
+        // "2.4 GiB". An import reads at most 2 GiB from one file.
+        &gettext(
+            "The media files add up to {size}, more than the 2 GiB that Rappel reads from one \
+             file. An export with them could not be imported again by Rappel. Export without \
+             them instead? Decks, cards and their history are exported; the media files stay \
+             where they are, and cards keep their references to them.",
+        ),
+        &[(
+            "size",
+            &gtk::glib::format_size_full(media_bytes, gtk::glib::FormatSizeFlags::IEC_UNITS),
+        )],
+    )
+}
+
 /// The toast for a refused file. A file from an early test version says
 /// so in its own words: its message already says it cannot be imported.
 pub(super) fn refused_text(problem: &ImportProblem) -> String {
@@ -465,6 +508,36 @@ mod tests {
             assert_ne!(title, fallback_title(), "{text}");
             assert!(title.chars().count() <= TOAST_FITS_WITH_BUTTON, "{title}");
         }
+    }
+
+    #[test]
+    fn an_export_without_media_says_so_and_how_many_files() {
+        let path = Path::new("/home/me/rappel-2026-11-03.rappel");
+        assert_eq!(
+            exported_without_media_text(path, 1),
+            "Media left out. Exported to “rappel-2026-11-03.rappel” without its 1 media file"
+        );
+        let many = exported_without_media_text(path, 1_200);
+        assert_eq!(
+            many,
+            "Media left out. Exported to “rappel-2026-11-03.rappel” without its 1,200 media files"
+        );
+        assert_has_a_title(&many);
+        // Nothing was left out: the usual toast.
+        assert_eq!(
+            exported_without_media_text(path, 0),
+            "Export done. Exported to “rappel-2026-11-03.rappel”"
+        );
+    }
+
+    #[test]
+    fn the_question_names_the_size_of_the_media() {
+        let body = without_media_body(3 << 30);
+        assert!(body.contains("3.0\u{a0}GiB"), "{body}");
+        assert!(body.contains("2 GiB"), "{body}");
+        assert!(body.contains("could not be imported again"), "{body}");
+        // Plain text: the size is the only thing filled in.
+        assert!(!body.contains('{'), "{body}");
     }
 
     #[test]
