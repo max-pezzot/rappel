@@ -42,15 +42,15 @@ fn the_key_is_the_folded_plain_text_on_one_line() {
 fn the_phrase_is_quoted_and_never_syntax() {
     assert_eq!(
         phrase_query("hola mundo").as_deref(),
-        Some("front : \"hola mundo\"")
+        Some("front : ^ \"hola mundo\"")
     );
     assert_eq!(
         phrase_query("say \"hi\"").as_deref(),
-        Some("front : \"say \"\"hi\"\"\"")
+        Some("front : ^ \"say \"\"hi\"\"\"")
     );
     // Leading punctuation holds no token and is left out.
-    assert_eq!(phrase_query("¿qué?").as_deref(), Some("front : \"qué?\""));
-    assert_eq!(phrase_query("a\0b").as_deref(), Some("front : \"a b\""));
+    assert_eq!(phrase_query("¿qué?").as_deref(), Some("front : ^ \"qué?\""));
+    assert_eq!(phrase_query("a\0b").as_deref(), Some("front : ^ \"a b\""));
     // No letter or digit: nothing to look up.
     assert_eq!(phrase_query(""), None);
     assert_eq!(phrase_query("+ - * ?"), None);
@@ -62,13 +62,13 @@ fn a_long_key_is_cut_and_ends_in_a_prefix() {
     let query = phrase_query(&key).unwrap();
     // Cut between two characters, at most the budget.
     let inner = query
-        .strip_prefix("front : \"")
+        .strip_prefix("front : ^ \"")
         .and_then(|q| q.strip_suffix("\"*"))
         .unwrap();
     assert_eq!(inner, "é".repeat(MAX_PHRASE_BYTES / 2));
     // Padding before the first letter is free.
     let padded = format!("{}{}", "-".repeat(10_000), "word");
-    assert_eq!(phrase_query(&padded).as_deref(), Some("front : \"word\""));
+    assert_eq!(phrase_query(&padded).as_deref(), Some("front : ^ \"word\""));
 }
 
 #[test]
@@ -274,27 +274,167 @@ proptest::proptest! {
         add(&mut store, &spanish, "alpha beta");
         store.cards_with_front(&text, None).unwrap();
     }
+}
 
-    /// The query finds exactly the cards whose key is the typed front's,
-    /// as comparing every card's key would: the phrase never misses one.
-    #[test]
-    fn the_lookup_is_comparing_every_key(
-        fronts in proptest::collection::vec("[aAéÉ b*_$!\n-]{0,8}", 1..12),
-        typed in "[aAéÉ b*_$!\n-]{0,8}",
-    ) {
-        let (mut store, spanish, _) = two_decks();
-        let mut expected = Vec::new();
-        for front in &fronts {
-            if front.trim().is_empty() {
-                continue;
+#[test]
+fn a_front_over_the_cap_is_not_looked_up() {
+    let (mut store, spanish, _) = two_decks();
+    let longest = format!("{} end", "x".repeat(MAX_SAME_FRONT_BYTES - 4));
+    let over = format!("{longest}s");
+    assert_eq!(longest.len(), MAX_SAME_FRONT_BYTES);
+    let id = add(&mut store, &spanish, &longest);
+    add(&mut store, &spanish, &over);
+    assert_eq!(found(&store, &longest, None), [id.as_str()]);
+    assert_eq!(found(&store, &over, None), Vec::<String>::new());
+}
+
+#[test]
+fn a_private_use_character_starts_a_token() {
+    let (mut store, spanish, _) = two_decks();
+    // unicode61 reads private use (U+E000) as a token character, joined to
+    // the letters after it; Rust does not call it alphanumeric.
+    let joined = add(&mut store, &spanish, "\u{E000}abc");
+    let alone = add(&mut store, &spanish, "\u{F0000}");
+    let plain = add(&mut store, &spanish, "abc");
+    assert_eq!(found(&store, "\u{E000}ABC", None), [joined.as_str()]);
+    assert_eq!(found(&store, "  \u{F0000} ", None), [alone.as_str()]);
+    assert_eq!(found(&store, "abc", None), [plain.as_str()]);
+    assert_eq!(
+        phrase_query("-\u{E000}abc").as_deref(),
+        Some("front : ^ \"\u{E000}abc\"")
+    );
+    assert_eq!(
+        phrase_query("\u{10FFFD}").as_deref(),
+        Some("front : ^ \"\u{10FFFD}\"")
+    );
+}
+
+#[test]
+fn the_phrase_is_anchored_to_the_start_of_the_front() {
+    let (mut store, spanish, _) = two_decks();
+    add(&mut store, &spanish, "un gato");
+    add(&mut store, &spanish, "gato negro");
+    let exact = add(&mut store, &spanish, "¿gato");
+    let fronts = add(&mut store, &spanish, "gato");
+    // Only "gato" itself, never a front holding it further on.
+    assert_eq!(found(&store, "gato", None), [fronts.as_str()]);
+    // Leading punctuation is no token: anchored, a front starting with it
+    // is still found.
+    assert_eq!(found(&store, "¿Gato", None), [exact.as_str()]);
+}
+
+/// The key the property test checks the store against, written here from
+/// its definition rather than by calling [`front_key`]: the search
+/// index's text with every run of whitespace as one space.
+fn oracle_key(front: &str) -> String {
+    crate::content::search_text(front)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// What `typed` is made from in the property test: one of the fronts as
+/// it is, or changed in a way that keeps its key (upper case, accents
+/// decomposed, more whitespace around and inside, bold), or unrelated text.
+#[derive(Debug, Clone)]
+enum Typed {
+    Front {
+        index: usize,
+        upper: bool,
+        nfd: bool,
+        spaced: bool,
+        bold: bool,
+    },
+    Other(String),
+}
+
+/// A tiny alphabet, so fronts often share a key: case, an accent, a
+/// private-use character, spaces, newlines, a tab, punctuation.
+const ALPHABET: &str = "[aAéÉ\u{E000} \n\t!]{1,4}";
+
+fn typed_strategy() -> impl proptest::strategy::Strategy<Value = Typed> {
+    use proptest::prelude::*;
+    prop_oneof![
+        3 => (0..12usize, any::<bool>(), any::<bool>(), any::<bool>(), any::<bool>()).prop_map(
+            |(index, upper, nfd, spaced, bold)| Typed::Front { index, upper, nfd, spaced, bold }
+        ),
+        1 => ALPHABET.prop_map(Typed::Other),
+    ]
+}
+
+fn make_typed(typed: &Typed, fronts: &[String]) -> String {
+    use unicode_normalization::UnicodeNormalization;
+    match typed {
+        Typed::Other(text) => text.clone(),
+        Typed::Front {
+            index,
+            upper,
+            nfd,
+            spaced,
+            bold,
+        } => {
+            let mut text = fronts[index % fronts.len()].clone();
+            if *upper {
+                text = text.to_uppercase();
             }
-            let id = add(&mut store, &spanish, front);
-            let key = front_key(&typed);
-            if front_key(front) == key && key.contains(char::is_alphanumeric) {
-                expected.push(id);
+            if *nfd {
+                text = text.nfd().collect();
             }
+            if *spaced {
+                text = format!(" \n {} \t", text.replace(' ', "  \t "));
+            }
+            if *bold && !text.trim().is_empty() {
+                text = format!("**{}**", text.trim());
+            }
+            text
         }
-        expected.reverse();
-        proptest::prop_assert_eq!(found(&store, &typed, None), expected);
     }
+}
+
+/// The lookup finds exactly the cards whose key equals the typed front's,
+/// by the oracle's key; a front without a token character finds nothing.
+/// Fronts and typed text come from a tiny alphabet, and the typed text is
+/// usually one of the fronts changed in ways that keep its key, so most
+/// cases have matches: at least half must, checked at the end, so a bug
+/// that misses matches (a key without collapsed whitespace, say) fails.
+#[test]
+fn the_lookup_finds_what_comparing_every_key_finds() {
+    use std::cell::Cell;
+
+    use proptest::prelude::*;
+    use proptest::test_runner::{Config, TestRunner};
+
+    const CASES: u32 = 256;
+    let mut runner = TestRunner::new(Config::with_cases(CASES));
+    let with_matches = Cell::new(0u32);
+    let strategy = (proptest::collection::vec(ALPHABET, 1..12), typed_strategy());
+    runner
+        .run(&strategy, |(fronts, typed)| {
+            let typed = make_typed(&typed, &fronts);
+            let (mut store, spanish, _) = two_decks();
+            let key = oracle_key(&typed);
+            let mut expected = Vec::new();
+            for front in &fronts {
+                if front.trim().is_empty() {
+                    continue;
+                }
+                let id = add(&mut store, &spanish, front);
+                if oracle_key(front) == key && key.contains(starts_token) {
+                    expected.push(id);
+                }
+            }
+            // Newest first.
+            expected.reverse();
+            if !expected.is_empty() {
+                with_matches.set(with_matches.get() + 1);
+            }
+            prop_assert_eq!(found(&store, &typed, None), expected);
+            Ok(())
+        })
+        .unwrap();
+    assert!(
+        with_matches.get() >= CASES / 2,
+        "only {} of {CASES} cases had a match",
+        with_matches.get()
+    );
 }

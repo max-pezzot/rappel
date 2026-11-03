@@ -86,9 +86,12 @@ pub(crate) fn fts_query(text: &str) -> Option<String> {
         }
         // What comes before a word's first letter or digit (`---abc`,
         // accents on their own) holds no token, so it is left out before
-        // anything is cut: padding never uses up the budget. Characters
-        // Rust calls neither letter nor digit that FTS5 reads as one
-        // (private use) only make the word require less.
+        // anything is cut: padding never uses up the budget. Known miss:
+        // FTS5 reads a private-use character (`Co`) as part of a token,
+        // which Rust does not call alphanumeric, so one at the start of a
+        // word is cut off here and the word ("\u{E000}abc") is searched as
+        // "abc", which does not find the token "\u{E000}abc".
+        // `same_front::starts_token` knows these characters.
         let raw = raw.trim_start_matches(|c: char| !c.is_alphanumeric());
         if raw.is_empty() {
             continue;

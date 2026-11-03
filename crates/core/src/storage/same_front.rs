@@ -51,16 +51,30 @@ fn collapse_whitespace(text: &str) -> String {
 /// 256 bytes are few, and Rust compares the rest.
 const MAX_PHRASE_BYTES: usize = 256;
 
-/// The FTS5 query for the fronts holding `key`'s words in order: one
-/// quoted phrase on the `front` column, its quotes doubled, so nothing in
-/// it is ever FTS5 syntax. A key longer than [`MAX_PHRASE_BYTES`] is cut,
-/// and its last word becomes a prefix (`"…"*`), so a word cut in two still
-/// matches. `None` if the key has no letter or digit: such a front has no
-/// token to look up, and gets no note (ADR 0072).
+/// Whether the `unicode61` tokenizer reads `c` as part of a token, as far
+/// as where a phrase starts goes: a letter or digit (its default token
+/// categories `L*` and `N*`, which Rust's `is_alphanumeric` covers), or a
+/// private-use character (`Co`), which Rust does not call alphanumeric.
+/// A character Rust calls alphanumeric that FTS5 does not read as a token
+/// (a few marks) only starts the phrase one separator early: the same
+/// tokens.
+fn starts_token(c: char) -> bool {
+    c.is_alphanumeric()
+        || matches!(c, '\u{E000}'..='\u{F8FF}' | '\u{F0000}'..='\u{FFFFD}' | '\u{100000}'..='\u{10FFFD}')
+}
+
+/// The FTS5 query for the fronts that start with `key`'s words in order:
+/// one quoted phrase on the `front` column, anchored to the column's first
+/// token (`^`), its quotes doubled, so nothing in it is ever FTS5 syntax.
+/// A key longer than [`MAX_PHRASE_BYTES`] is cut, and its last word
+/// becomes a prefix (`"…"*`), so a word cut in two still matches. `None`
+/// if the key has no token character ([`starts_token`]): such a front has
+/// nothing to look up, and gets no note (ADR 0072).
 fn phrase_query(key: &str) -> Option<String> {
-    // What comes before the first letter or digit holds no token, so the
-    // phrase is the same without it, and it never uses up the budget.
-    let start = key.find(char::is_alphanumeric)?;
+    // What comes before the first token character holds no token, so the
+    // phrase is the same without it, the stored front's first token is the
+    // phrase's first, and it never uses up the budget.
+    let start = key.find(starts_token)?;
     let words = &key[start..];
     let (words, cut) = if words.len() > MAX_PHRASE_BYTES {
         let mut end = MAX_PHRASE_BYTES;
@@ -75,19 +89,29 @@ fn phrase_query(key: &str) -> Option<String> {
     // as a space it separates the same tokens.
     let quoted = words.replace('\0', " ").replace('"', "\"\"");
     Some(format!(
-        "front : \"{quoted}\"{}",
+        "front : ^ \"{quoted}\"{}",
         if cut { "*" } else { "" }
     ))
 }
+
+/// The longest front looked up, in bytes of its Markdown: 64 KiB. Parsing
+/// and folding a front is what costs, about 90 ms for 1 MiB of dense
+/// Markdown in a release build (330 ms in a debug one), on the editor's
+/// main thread at every pause in typing; 64 KiB takes a few
+/// milliseconds. A longer front is no note's business: such a card is
+/// not typed twice by mistake (ADR 0072).
+pub const MAX_SAME_FRONT_BYTES: usize = 64 * 1024;
 
 impl Store {
     /// The live cards, in every live deck (archived ones included), whose
     /// front reads the same as `front_md` ([`front_key`]), other than card
     /// `except_id`: those in decks not archived first, then the newest
-    /// first. Empty for a front without a letter or digit.
+    /// first. Empty for a front without a letter, digit or private-use
+    /// character, and for one longer than [`MAX_SAME_FRONT_BYTES`], which
+    /// is not even parsed.
     ///
     /// One FTS5 phrase query on the search index (ADR 0035) finds the
-    /// fronts that hold the words in order; of those, only the ones whose
+    /// fronts that start with the words in order; of those, only the ones whose
     /// whole key is the same are kept.
     ///
     /// # Errors
@@ -97,6 +121,9 @@ impl Store {
         front_md: &str,
         except_id: Option<&str>,
     ) -> Result<Vec<SameFront>> {
+        if front_md.len() > MAX_SAME_FRONT_BYTES {
+            return Ok(Vec::new());
+        }
         same_front_in(&self.conn, &front_key(front_md), except_id)
     }
 }

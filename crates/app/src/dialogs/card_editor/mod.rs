@@ -455,11 +455,18 @@ impl CardEditor {
     /// Looks for the other live cards with the same front now, unless the
     /// front is the one last looked up, and shows the note: one indexed
     /// query (`Store::cards_with_front`), on the main thread as All Cards'
-    /// search is. A failure hides the note: it is only a hint.
+    /// search is. A front over `MAX_SAME_FRONT_BYTES` (64 KiB) is not
+    /// parsed and has no note, so the pause never costs more than a few
+    /// milliseconds. A failure hides the note: it is only a hint.
     fn check_same_front(&self) {
         let imp = self.imp();
         imp.same_front.cancel();
-        let (front, _) = self.texts();
+        // The front alone: the back may be up to 1 MiB too.
+        let front = {
+            let buffer = &*imp.front_buffer;
+            let (start, end) = buffer.bounds();
+            buffer.text(&start, &end, false).to_string()
+        };
         if imp.same_front_looked.borrow().as_deref() == Some(front.as_str()) {
             return;
         }
@@ -500,6 +507,9 @@ impl CardEditor {
             // The focus would be lost with the button: back to the text.
             let had_focus = imp.front_same_button.has_focus();
             imp.front_same.set_visible(false);
+            // The front stays described by the label: an old note must not
+            // be read out.
+            imp.front_same_label.set_label("");
             if had_focus {
                 imp.front_view.grab_focus();
             }
@@ -1371,6 +1381,9 @@ pub(super) mod tests {
             editor.check_same_front();
             assert_eq!(same_front_note(&editor), None);
             assert_eq!(*imp.same_front_card.borrow(), None);
+            // Hidden, the label holds nothing a screen reader could read
+            // through the front's description.
+            assert_eq!(imp.front_same_label.label(), "");
             // Saving is never blocked.
             imp.front_buffer.set_text("el niño");
             editor.check_same_front();
@@ -1418,6 +1431,20 @@ pub(super) mod tests {
                 Some("A card in “Deck” has the same front")
             );
             imp.front_buffer.set_text("");
+            editor.check_same_front();
+            assert_eq!(same_front_note(&editor), None);
+        });
+    }
+
+    #[test]
+    fn a_front_over_the_cap_is_not_looked_up() {
+        use rappel_core::storage::MAX_SAME_FRONT_BYTES;
+        crate::testing::with_widgets(|| {
+            let (_tmp, state, deck, editor, _saved) = editor_over(None);
+            let imp = editor.imp();
+            let long = "word ".repeat(MAX_SAME_FRONT_BYTES / 5 + 1);
+            state.add_card_with_tags(&deck, &long, "", &[]).unwrap();
+            imp.front_buffer.set_text(&long);
             editor.check_same_front();
             assert_eq!(same_front_note(&editor), None);
         });
