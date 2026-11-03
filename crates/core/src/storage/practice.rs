@@ -18,7 +18,7 @@ impl Store {
     /// their retrievability now (lowest first; from the cached stability,
     /// difficulty and last review, as Card Information computes it), then
     /// the new ones oldest first, ties by id, at most
-    /// [`PRACTICE_LIMIT`](crate::scheduling::PRACTICE_LIMIT). Every card is
+    /// `PRACTICE_LIMIT` (50). Every card is
     /// offered, due or not: practice ignores the schedule and the daily
     /// limits, since it records nothing.
     ///
@@ -107,27 +107,36 @@ pub(super) fn query_only<T>(
 }
 
 /// `PRAGMA query_only` on for as long as it lives: on in [`Self::new`],
-/// off again when dropped, so a read that returns early, fails or panics
-/// still leaves the connection writable for the app's own writes.
-struct QueryOnly<'c>(&'c Connection);
+/// back to what it was when dropped (off, unless a caller had it on), so a
+/// read that returns early, fails or panics still leaves the connection
+/// writable for the app's own writes, and a read nested in another one
+/// never turns it off under the outer one (ADR 0073).
+struct QueryOnly<'c> {
+    conn: &'c Connection,
+    was_on: bool,
+}
 
 impl<'c> QueryOnly<'c> {
     /// Turns `query_only` on for `conn`.
     ///
     /// # Errors
-    /// If SQLite cannot set it; it is then not on.
+    /// If SQLite cannot read or set it; it is then as it was.
     fn new(conn: &'c Connection) -> Result<Self> {
+        let was_on: bool = conn.query_row("PRAGMA query_only", [], |r| r.get(0))?;
         conn.pragma_update(None, "query_only", true)?;
-        Ok(Self(conn))
+        Ok(Self { conn, was_on })
     }
 }
 
 impl Drop for QueryOnly<'_> {
     fn drop(&mut self) {
+        if self.was_on {
+            return;
+        }
         // Setting a pragma of an open connection does not fail in
         // practice; if it ever does, it is logged (no card content), and
         // the next write reports SQLITE_READONLY rather than writing.
-        if let Err(err) = self.0.pragma_update(None, "query_only", false) {
+        if let Err(err) = self.conn.pragma_update(None, "query_only", false) {
             tracing::warn!("cannot turn query_only off after a practice read: {err}");
         }
     }

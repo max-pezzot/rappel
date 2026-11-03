@@ -29,7 +29,7 @@ use crate::domain::Grade;
 /// The most cards one practice offers: the least well remembered ones. A
 /// practice is a short refresher, not a second pass over a whole deck of
 /// thousands; another practice starts from the top again.
-pub const PRACTICE_LIMIT: usize = 50;
+pub(crate) const PRACTICE_LIMIT: usize = 50;
 
 /// How many other cards come before a failed card comes back in the same
 /// practice (fewer when fewer are left).

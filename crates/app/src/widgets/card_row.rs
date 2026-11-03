@@ -865,18 +865,6 @@ mod tests {
         });
     }
 
-    /// Every text of the labels under `widget`, as drawn.
-    fn label_texts(widget: &gtk::Widget, out: &mut Vec<String>) {
-        if let Some(label) = widget.downcast_ref::<gtk::Label>() {
-            out.push(label.text().to_string());
-        }
-        let mut child = widget.first_child();
-        while let Some(c) = child {
-            label_texts(&c, out);
-            child = c.next_sibling();
-        }
-    }
-
     /// A tag's name reaches the opened menu as it is: an underscore is not
     /// taken as a mnemonic, and markup is not parsed.
     #[test]
@@ -898,7 +886,7 @@ mod tests {
             button.popup();
             let popover = button.popover().unwrap();
             let mut texts = Vec::new();
-            label_texts(popover.upcast_ref(), &mut texts);
+            texts.extend(crate::testing::label_texts(popover.upcast_ref()));
             button.popdown();
             window.destroy();
             assert!(

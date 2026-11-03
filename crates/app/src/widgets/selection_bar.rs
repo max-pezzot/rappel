@@ -123,6 +123,7 @@ impl SelectionBar {
     }
 
     /// Whether the bar is shown.
+    #[cfg(test)]
     pub fn is_revealed(&self) -> bool {
         self.imp().action_bar.is_revealed()
     }

@@ -153,11 +153,13 @@ impl SelectionHeader {
     }
 
     /// The title shown.
+    #[cfg(test)]
     pub fn title(&self) -> String {
         self.imp().title.title().to_string()
     }
 
     /// Select All.
+    #[cfg(test)]
     pub fn select_all_button(&self) -> gtk::Button {
         self.imp().select_all_button.get()
     }

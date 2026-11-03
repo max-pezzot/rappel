@@ -14,7 +14,7 @@ use rappel_core::storage::Merged;
 use crate::i18n::{fill, gettext, ngettext};
 use crate::state::AppState;
 use crate::ui::text::{counted, not_restored, with_error};
-use crate::ui::toast::{info_toast, show_error, show_toast_from, undo_toast};
+use crate::ui::toast::{Message, info_toast, show_error, show_toast_from, undo_toast};
 use crate::ui::{dialog, dropdown};
 
 const FILE: &str = "merge_deck_dialog.ui";
@@ -22,11 +22,10 @@ const FILE: &str = "merge_deck_dialog.ui";
 /// The decks deck `source` can be merged into: every deck but itself and
 /// the archived ones (core refuses those, ADR 0068), in the order given.
 /// The one place that decides it, for both menus.
+/// The same decks as Move to Deck… offers a card of `source`
+/// (`move_card::targets`), so the two cannot drift.
 pub fn targets<'a>(decks: &'a [Deck], source: &str) -> Vec<&'a Deck> {
-    decks
-        .iter()
-        .filter(|deck| deck.id != source && !deck.is_archived())
-        .collect()
+    super::move_card::targets(decks, source)
 }
 
 /// Whether Merge Into… is enabled for deck `source`: when there is a deck
@@ -88,7 +87,7 @@ pub(crate) fn layout() -> Result<(adw::AlertDialog, gtk::DropDown), &'static str
 /// choice. The drop-down has the focus once the dialog shows, at any
 /// window size (`dialog::focus_when_shown`); Cancel is the default
 /// response, so Enter there opens the list and never merges.
-pub fn prepare(
+fn prepare(
     source: &Deck,
     count: usize,
     targets: &[Deck],
@@ -128,7 +127,7 @@ pub fn prepare(
 /// gives the focus back to the widget that had it then, so a page that
 /// moves the focus because of the answer does it again there (as
 /// `browser_dialogs::choose_closing`).
-pub async fn choose_target(
+async fn choose_target(
     parent: &impl IsA<gtk::Widget>,
     source: &Deck,
     count: usize,
@@ -221,30 +220,32 @@ pub fn merged_toast(
 /// What to tell when the Undo of merging `source` into `target` failed
 /// with `err`, in words where core's error would only give an id: the
 /// deck merged into was deleted since (its delete is undone first), the
-/// merged deck was deleted again, or another deck took its name.
-pub fn not_restored_text(source: &Deck, target: &Deck, err: &Error) -> String {
+/// merged deck was deleted again, or another deck took its name. Its
+/// title is decided on the template, so a ":" in a deck's name never
+/// splits it ([`Message`]).
+pub fn not_restored_text(source: &Deck, target: &Deck, err: &Error) -> Message {
     let name = source.name.as_str();
     match err {
-        Error::DeckNotFound(id) if *id == target.id => fill(
+        Error::DeckNotFound(id) if *id == target.id => Message::from_template(
             // Translators: a toast: what is before ":" is its title, the
             // rest is behind Details. {name} is the deck that was merged,
             // {target} the deck it was merged into, which was deleted since.
             &gettext("“{name}” could not be restored: “{target}” was deleted since."),
             &[("name", name), ("target", &target.name)],
         ),
-        Error::DeckNotFound(_) => fill(
+        Error::DeckNotFound(_) => Message::from_template(
             // Translators: a toast: what is before ":" is its title, the
             // rest is behind Details. {name} is a deck's name.
             &gettext("“{name}” could not be restored: it was deleted again since."),
             &[("name", name)],
         ),
-        Error::DuplicateDeckName(_) => fill(
+        Error::DuplicateDeckName(_) => Message::from_template(
             // Translators: a toast: what is before ":" is its title, the
             // rest is behind Details. {name} is a deck's name.
             &gettext("“{name}” could not be restored: another deck has its name now."),
             &[("name", name)],
         ),
-        Error::ArchivedDeckName(_) => fill(
+        Error::ArchivedDeckName(_) => Message::from_template(
             // Translators: a toast: what is before ":" is its title, the
             // rest is behind Details. {name} is a deck's name.
             &gettext("“{name}” could not be restored: an archived deck has its name now."),
@@ -339,11 +340,11 @@ mod tests {
         let mut target = deck("t");
         target.name = "Languages".to_owned();
         assert_eq!(
-            not_restored_text(&source, &target, &Error::DeckNotFound("t".to_owned())),
+            not_restored_text(&source, &target, &Error::DeckNotFound("t".to_owned())).text,
             "“Spanish” could not be restored: “Languages” was deleted since."
         );
         assert_eq!(
-            not_restored_text(&source, &target, &Error::DeckNotFound("s".to_owned())),
+            not_restored_text(&source, &target, &Error::DeckNotFound("s".to_owned())).text,
             "“Spanish” could not be restored: it was deleted again since."
         );
         assert_eq!(
@@ -351,7 +352,8 @@ mod tests {
                 &source,
                 &target,
                 &Error::DuplicateDeckName("Spanish".to_owned())
-            ),
+            )
+            .text,
             "“Spanish” could not be restored: another deck has its name now."
         );
         assert_eq!(
@@ -359,17 +361,46 @@ mod tests {
                 &source,
                 &target,
                 &Error::ArchivedDeckName("Spanish".to_owned())
-            ),
+            )
+            .text,
             "“Spanish” could not be restored: an archived deck has its name now."
         );
         assert_eq!(
-            not_restored_text(&source, &target, &Error::EmptyDeckName),
+            not_restored_text(&source, &target, &Error::EmptyDeckName).text,
             "“Spanish” could not be restored: a deck name cannot be empty"
         );
         // No id is ever shown, and names are never read for placeholders.
         target.name = "{name}".to_owned();
-        let text = not_restored_text(&source, &target, &Error::DeckNotFound("t".to_owned()));
+        let text = not_restored_text(&source, &target, &Error::DeckNotFound("t".to_owned())).text;
         assert!(text.contains("“{name}” was deleted") && !text.contains(" t "));
+        // A ":" in the merged deck's name never ends the title: the title
+        // is the template's first clause, too long here, so the fallback,
+        // and the details are the whole text (the bug: "“Spanish" as the
+        // title and "Verbs” could not be restored…" behind Details).
+        source.name = "Spanish: verbs".to_owned();
+        target.name = "Languages".to_owned();
+        for err in [
+            Error::DeckNotFound("t".to_owned()),
+            Error::DeckNotFound("s".to_owned()),
+            Error::DuplicateDeckName("x".to_owned()),
+            Error::ArchivedDeckName("x".to_owned()),
+            Error::EmptyDeckName,
+        ] {
+            let message = not_restored_text(&source, &target, &err);
+            assert!(
+                message
+                    .text
+                    .starts_with("“Spanish: verbs” could not be restored: ")
+            );
+            assert_eq!(
+                message.shown,
+                crate::ui::toast::ToastText::Detailed {
+                    title: crate::ui::toast::fallback_title(),
+                    details: message.text.clone(),
+                },
+                "{err:?}"
+            );
+        }
     }
 
     #[test]

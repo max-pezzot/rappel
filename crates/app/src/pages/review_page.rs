@@ -2384,37 +2384,16 @@ mod tests {
             .collect()
     }
 
-    /// The Card Menu's `GtkModelButton` for Move to Deck… (found by its
-    /// private type name and `text` property, as in
-    /// `the_card_menu_shows_the_keys_the_page_binds`), opened in a window
-    /// so its action's state reaches it.
+    /// Whether the Card Menu's Move to Deck… can be pressed, its menu
+    /// opened in a window so its action's state reaches it
+    /// (`testing::menu_item_sensitive`).
     fn move_item_sensitive(page: &ReviewPage) -> bool {
         let window = in_window(page);
         window.present();
-        let button = &page.imp().card_menu_button;
-        button.popup();
-        let mut todo = vec![
-            button
-                .popover()
-                .expect("the menu is open")
-                .upcast::<gtk::Widget>(),
-        ];
-        let mut found = None;
-        while let Some(widget) = todo.pop() {
-            if widget.type_().name() == "GtkModelButton"
-                && widget.property::<Option<String>>("text").as_deref() == Some("Move to Deck…")
-            {
-                found = Some(widget.is_sensitive());
-            }
-            let mut child = widget.first_child();
-            while let Some(c) = child {
-                child = c.next_sibling();
-                todo.push(c);
-            }
-        }
-        button.popdown();
+        let sensitive =
+            crate::testing::menu_item_sensitive(&page.imp().card_menu_button, "Move to Deck…");
         window.destroy();
-        found.expect("the Card Menu has Move to Deck…")
+        sensitive
     }
 
     #[test]
@@ -3349,18 +3328,6 @@ mod tests {
         });
     }
 
-    /// Every label text under `widget`, as drawn.
-    fn label_texts(widget: &gtk::Widget, out: &mut Vec<String>) {
-        if let Some(label) = widget.downcast_ref::<gtk::Label>() {
-            out.push(label.text().to_string());
-        }
-        let mut child = widget.first_child();
-        while let Some(c) = child {
-            label_texts(&c, out);
-            child = c.next_sibling();
-        }
-    }
-
     /// A tag's name in the "all done" page's description, which is Pango
     /// markup, is drawn as it is: escaped, never parsed.
     #[test]
@@ -3376,7 +3343,9 @@ mod tests {
             let page =
                 ReviewPage::for_tag(state.clone(), tag, StartedFrom::AllCards, |_| {}).unwrap();
             let mut texts = Vec::new();
-            label_texts(page.imp().summary_page.upcast_ref(), &mut texts);
+            texts.extend(crate::testing::label_texts(
+                page.imp().summary_page.upcast_ref(),
+            ));
             assert!(
                 texts.contains(
                     &"No cards tagged “\u{2068}a&b <i>\u{2069}” are left to study now.".to_owned()

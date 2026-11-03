@@ -1,6 +1,6 @@
 //! Ctrl+A for a page that lists cards: it chooses every card listed (#106).
-//! All Cards uses it; the deck page does too, once it has a selection mode
-//! (phase 3a, slice 2). The page gives the action; this module decides when
+//! All Cards and the deck page use it, through their shared selection mode
+//! (`ui::selection`, ADR 0065). The page gives the action; this module decides when
 //! the key is for it.
 //!
 //! **Why Capture, and what keeps the text fields' Ctrl+A.** GTK binds
@@ -29,7 +29,7 @@ pub const KEYS: [Key; 2] = [Key::a, Key::A];
 
 /// Whether `key` with `modifiers` is Ctrl+A: Ctrl, and neither Alt nor
 /// Super (Ctrl+Alt+A is another shortcut's).
-pub fn is_key(key: Key, modifiers: ModifierType) -> bool {
+fn is_key(key: Key, modifiers: ModifierType) -> bool {
     KEYS.contains(&key)
         && modifiers.contains(ModifierType::CONTROL_MASK)
         && !modifiers.intersects(ModifierType::ALT_MASK | ModifierType::SUPER_MASK)

@@ -401,7 +401,7 @@ pub enum Error {
     ExportFailed(#[source] Box<dyn std::error::Error + Send + Sync>),
 
     /// The export came out larger than an import reads
-    /// ([`MAX_ARCHIVE_BYTES`](crate::interchange::MAX_ARCHIVE_BYTES)), so it
+    /// (`MAX_ARCHIVE_BYTES`, 2 GiB), so it
     /// could not be imported again. The file was not kept (ADR 0071).
     #[error("the export is {bytes} bytes, more than the {limit} bytes an import reads")]
     ExportTooLarge {

@@ -24,15 +24,15 @@ use crate::time::now_ms;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Merged {
     /// The deck merged, now deleted.
-    pub source: String,
+    pub(crate) source: String,
     /// The deck its cards went to.
-    pub target: String,
+    pub(crate) target: String,
     /// The source's `deleted_at`.
-    pub stamp: i64,
+    pub(crate) stamp: i64,
     /// Every card moved, live and deleted, oldest first.
-    pub cards: Vec<String>,
+    pub(crate) cards: Vec<String>,
     /// How many of them were live.
-    pub live: usize,
+    pub(crate) live: usize,
 }
 
 impl Store {

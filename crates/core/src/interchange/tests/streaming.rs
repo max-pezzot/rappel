@@ -8,7 +8,7 @@ use std::time::{Duration, SystemTime};
 
 use proptest::collection::vec;
 
-use super::property::{op, run};
+use super::property::{op, reorganisation, run};
 use super::*;
 use crate::interchange::notes::COLLIDING_NAMES;
 use crate::test_support::within;
@@ -333,7 +333,11 @@ proptest! {
     #[test]
     fn streaming_gives_what_reading_the_whole_document_gave(
         ops in vec(op(), 0..60),
-        later in vec(op(), 0..30),
+        // Mostly reorganisations (moves, merges, deck deletes and
+        // archives), so a card moved since, deleted with its new deck and
+        // live in the file is common (slice 3's review: with `op()` alone,
+        // 160 cases missed a broken guard of that rule).
+        later in vec(prop_oneof![1 => op(), 2 => reorganisation()], 0..30),
         damages in vec(damage(), 0..4),
         order in 0..4usize,
         into_source in any::<bool>(),

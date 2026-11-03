@@ -35,13 +35,15 @@ pub use anki::{
     ANKI_EXTENSIONS, AnkiFormat, AnkiPlan, AnkiProblem, AnkiReport, AnkiSummary, FileKind, Skip,
     Skipped, file_kind, remove_stale_anki_temps,
 };
-pub use export::{MediaOverLimit, MediaTotals, export_size_at_least, media_too_large_for_import};
+#[cfg(test)]
+pub(crate) use export::export_size_at_least;
+pub use export::{MediaOverLimit, MediaTotals, media_too_large_for_import};
 pub(crate) use format::FORMAT_VERSION;
 
 /// The largest `.rappel` file an import reads: 2 GiB (ADR 0053). An export
 /// whose media would make it larger is offered without them (ADR 0071), so
 /// the export and the import share this number.
-pub const MAX_ARCHIVE_BYTES: u64 = 2 << 30;
+pub(crate) const MAX_ARCHIVE_BYTES: u64 = 2 << 30;
 
 /// File name extension of an export, without the dot.
 pub const FILE_EXTENSION: &str = "rappel";

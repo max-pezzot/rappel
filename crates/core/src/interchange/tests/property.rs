@@ -241,8 +241,10 @@ proptest! {
 
 /// The writes that only reorganise: new decks, moves, merges, deck and
 /// card deletes and their undos, archiving and unarchiving. An export made
-/// before any of them conflicts only on a deck name taken since.
-fn reorganisation() -> impl Strategy<Value = Op> {
+/// before any of them conflicts only on a deck name taken since. Also the
+/// later writes of `streaming.rs`'s comparison with the old reader, so it
+/// sees cards moved since and deleted with their new deck.
+pub(super) fn reorganisation() -> impl Strategy<Value = Op> {
     let i = || 0usize..16;
     prop_oneof![
         2 => i().prop_map(Op::Archive),
@@ -323,9 +325,7 @@ proptest! {
             "{:?}",
             conflicts
         );
-        if !conflicts.is_empty() {
-            return Ok(());
-        }
+        prop_assume!(conflicts.is_empty());
         env.store.apply_import_at(&plan, T_EXPORT).unwrap();
         let after = live_cards(&env.store);
         // Every card live before is still live, in the same deck.

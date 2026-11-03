@@ -834,6 +834,45 @@ fn the_size_bound_is_no_more_than_a_real_export() {
     assert!(206 < bytes.len() as u64);
 }
 
+/// Hardening round 4 (ADR 0073): the export's check after writing and
+/// the import's size check meet at the same byte. With the limit set to a
+/// real export's size, the export keeps the file and the import reads it;
+/// one byte less, the export refuses to keep it and the import refuses it
+/// by its size. So an export Rappel keeps is one it imports again, at the
+/// boundary too; the pure decision before writing is exact there as well
+/// (`media_too_large_for_import_is_decided_at_the_exact_boundary`).
+#[test]
+fn the_export_and_the_import_agree_at_the_exact_size_limit() {
+    let (env, _, _) = media_env();
+    let path = env.tmp.path().join("edge.rappel");
+    env.store.export_to(&path).unwrap();
+    let size = fs::metadata(&path).unwrap().len();
+    let bytes = fs::read(&path).unwrap();
+    // The export writes the clock's time, whose digits can change the
+    // compressed size by a byte or two between two writes (as in
+    // `an_export_larger_than_an_import_reads_is_not_kept`): the export's
+    // own check is tried with that slack, the import's at the exact byte.
+    env.store
+        .export_to_limited(&path, ExportOptions::default(), size + 2)
+        .unwrap();
+    let kept = fs::metadata(&path).unwrap().len();
+    assert!(
+        env.store
+            .export_to_limited(&path, ExportOptions::default(), kept - 3)
+            .is_err_and(|e| matches!(e, Error::ExportTooLarge { .. }))
+    );
+    let at = |archive| Limits {
+        archive,
+        ..Limits::DEFAULT
+    };
+    let target = Env::new();
+    assert!(target.store.plan_import_bytes(&bytes, &at(size)).is_ok());
+    assert_eq!(
+        refused(target.store.plan_import_bytes(&bytes, &at(size - 1))),
+        ImportProblem::FileTooLarge { limit: size - 1 }
+    );
+}
+
 /// A file that came out larger than an import reads (what the bound
 /// cannot know: the text) is not kept, and the file there stays as it was.
 #[test]

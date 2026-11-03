@@ -479,15 +479,35 @@ impl DeckPage {
                 return;
             }
         };
-        for position in 0..store.n_items() {
-            let Some(item) = self.item(position) else {
-                continue;
-            };
-            let is_new = new.contains(&item.card().id);
-            if is_new != item.is_new() {
-                store.splice(position, 1, &[item.copy_with_new(is_new)]);
-            }
-        }
+        let items: Vec<CardObject> = (0..store.n_items())
+            .filter_map(|position| self.item(position))
+            .collect();
+        let flags: Vec<(bool, bool)> = items
+            .iter()
+            .map(|item| (item.is_new(), new.contains(&item.card().id)))
+            .collect();
+        let Some(range) = changed_range(&flags) else {
+            return;
+        };
+        // One splice for every row whose flag changed, so the list's
+        // `items-changed` handlers (counts, selection) run once, not once
+        // per row (k rows cost k × O(n) before). A row whose flag did not
+        // change goes back as the same item.
+        let replacements: Vec<CardObject> = items[range.clone()]
+            .iter()
+            .zip(&flags[range.clone()])
+            .map(|(item, &(was, is))| {
+                if was == is {
+                    item.clone()
+                } else {
+                    item.copy_with_new(is)
+                }
+            })
+            .collect();
+        let (Ok(start), Ok(len)) = (u32::try_from(range.start), u32::try_from(range.len())) else {
+            return;
+        };
+        store.splice(start, len, &replacements);
     }
 
     /// A list item for `tagged`, new or not as the store says. For a card
@@ -1272,6 +1292,14 @@ fn reset_notice(err: &Error) -> Notice {
     }
 }
 
+/// The positions from the first to the last whose flag changed, of the
+/// `(was, is)` pairs in list order; `None` when none changed. Pure.
+fn changed_range(flags: &[(bool, bool)]) -> Option<std::ops::Range<usize>> {
+    let first = flags.iter().position(|(was, is)| was != is)?;
+    let last = flags.iter().rposition(|(was, is)| was != is)?;
+    Some(first..last + 1)
+}
+
 /// The list items for `cards`, `new` being the ids of the new ones.
 fn items_of(cards: Vec<TaggedCard>, new: &HashSet<String>) -> Vec<CardObject> {
     cards
@@ -1578,6 +1606,23 @@ mod tests {
             card_id: id.to_owned(),
             due_at: 0,
         }
+    }
+
+    #[test]
+    fn the_new_flags_change_in_one_range() {
+        assert_eq!(changed_range(&[]), None);
+        assert_eq!(changed_range(&[(true, true), (false, false)]), None);
+        assert_eq!(changed_range(&[(true, false)]), Some(0..1));
+        assert_eq!(
+            changed_range(&[
+                (true, true),
+                (false, true),
+                (true, true),
+                (true, false),
+                (false, false)
+            ]),
+            Some(1..4)
+        );
     }
 
     #[test]
@@ -2076,13 +2121,7 @@ mod tests {
 
     /// The card rows built, wherever they are.
     fn rows(widget: &gtk::Widget) -> Vec<CardRow> {
-        let mut found: Vec<CardRow> = widget.clone().downcast().into_iter().collect();
-        let mut child = widget.first_child();
-        while let Some(c) = child {
-            found.extend(rows(&c));
-            child = c.next_sibling();
-        }
-        found
+        crate::testing::descendants(widget)
     }
 
     /// The card whose row has the window's focus.
@@ -2230,6 +2269,83 @@ mod tests {
             let _ = press_ctrl_a(&page);
             assert!(!page.selection().active());
             window.destroy();
+        });
+    }
+
+    /// Hardening round 4 (ADR 0073): Ctrl+A on a deck of 10,000 cards.
+    /// Choosing them all is quick (CPU time, ADR 0049), the header counts
+    /// them, the list still builds only the rows on screen (choosing binds
+    /// no widget per card), and Suspend on all of them and its Undo work.
+    /// Then the new-card flags of every row change at once (as after a
+    /// reset of them all) while cards are chosen: one splice, so the
+    /// counts and the selection follow it once, not once per row (slice
+    /// 2's review: 10,000 splices, each walking the list and reading the
+    /// study counts, froze the window).
+    #[test]
+    fn ctrl_a_on_ten_thousand_cards_is_quick_and_its_bulk_action_undoes() {
+        crate::testing::with_widgets(|| {
+            const N: usize = 10_000;
+            let (_tmp, state, deck, ids) = crate::testing::state_with_many_cards(N);
+            let page = DeckPage::new(state.clone(), deck).unwrap();
+            let window = presented(&page);
+            let settle = crate::testing::settle;
+            settle();
+            // GTK builds the rows on screen and a margin around them (about
+            // 200 here), never one per card.
+            let built = rows(page.upcast_ref()).len();
+            assert!((1..1_000).contains(&built), "{built} rows");
+            gtk::prelude::GtkWindowExt::set_focus(&window, Some(&*page.imp().card_list));
+
+            let (choose, pressed) = crate::testing::cpu_time_of(|| press_ctrl_a(&page));
+            assert!(pressed);
+            let selection = page.selection();
+            assert_eq!(selection.chosen_ids().len(), N);
+            assert_eq!(selection.header().title(), "10,000 Selected");
+            settle();
+            assert!(rows(page.upcast_ref()).len() <= built, "no row per card");
+
+            let chosen = selection.chosen_ids();
+            let (suspend, _) =
+                crate::testing::cpu_time_of(|| selection.run(&chosen, Bulk::Suspend(true)));
+            assert!(!selection.active(), "selection mode ends");
+            assert!(state.card(&ids[N - 1]).unwrap().suspended);
+            assert!((0..N).all(|p| {
+                page.item(u32::try_from(p).unwrap())
+                    .unwrap()
+                    .card()
+                    .suspended
+            }));
+            let (undo, ()) = crate::testing::cpu_time_of(|| selection.undo_last());
+            assert!(!state.card(&ids[0]).unwrap().suspended);
+            assert!((0..N).all(|p| {
+                !page
+                    .item(u32::try_from(p).unwrap())
+                    .unwrap()
+                    .card()
+                    .suspended
+            }));
+
+            // Every row stale at once, with cards chosen.
+            let store = page.imp().cards.get().unwrap();
+            let not_new: Vec<CardObject> = (0..store.n_items())
+                .map(|p| page.item(p).unwrap().copy_with_new(false))
+                .collect();
+            store.splice(0, store.n_items(), &not_new);
+            selection.set_active(true);
+            selection.toggle(&ids[3]);
+            let (refresh, ()) = crate::testing::cpu_time_of(|| page.refresh_new_flags());
+            assert!((0..N).all(|p| page.item(u32::try_from(p).unwrap()).unwrap().is_new()));
+            assert_eq!(selection.chosen_ids(), [ids[3].clone()]);
+            window.destroy();
+
+            crate::testing::print_timing("deck page: Ctrl+A on 10,000", choose);
+            crate::testing::print_timing("deck page: suspend 10,000", suspend);
+            crate::testing::print_timing("deck page: undo the suspend", undo);
+            crate::testing::print_timing("deck page: 10,000 new flags", refresh);
+            crate::testing::assert_cpu_within(choose, Duration::from_secs(1), "Ctrl+A");
+            crate::testing::assert_cpu_within(suspend, Duration::from_secs(5), "suspend");
+            crate::testing::assert_cpu_within(undo, Duration::from_secs(5), "undo");
+            crate::testing::assert_cpu_within(refresh, Duration::from_secs(2), "new flags");
         });
     }
 

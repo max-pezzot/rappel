@@ -41,6 +41,20 @@ pub(crate) fn index_card_in(
     Ok(())
 }
 
+/// Whether the `unicode61` tokenizer reads `c` as part of a token, as far
+/// as where a word or phrase starts goes: a letter or digit (its default
+/// token categories `L*` and `N*`, which Rust's `is_alphanumeric` covers),
+/// or a private-use character (`Co`: U+E000–U+F8FF and planes 15 and 16),
+/// which unicode61 also keeps in a token and Rust does not call
+/// alphanumeric. A character Rust calls alphanumeric that FTS5 does not
+/// read as a token (ⓐ, a few marks) only starts a word one separator
+/// early: the same tokens. Shared by All Cards' search and the same-front
+/// lookup (ADR 0072), so the two cannot disagree.
+pub(crate) fn starts_token(c: char) -> bool {
+    c.is_alphanumeric()
+        || matches!(c, '\u{E000}'..='\u{F8FF}' | '\u{F0000}'..='\u{FFFFD}' | '\u{100000}'..='\u{10FFFD}')
+}
+
 /// Rebuilds the whole index from the cards, inside the caller's transaction
 /// (migration 0010).
 pub(crate) fn rebuild_search_index(conn: &Connection) -> Result<()> {
@@ -63,7 +77,7 @@ pub(crate) fn rebuild_search_index(conn: &Connection) -> Result<()> {
 /// The FTS5 `MATCH` expression for what the user typed: every word, folded
 /// like the index, as a quoted prefix (`"word"*`), all of them required.
 /// Quotes are doubled, so nothing typed is ever FTS5 syntax. `None` if
-/// no word has a letter or digit to search for.
+/// no word has a token character ([`starts_token`]) to search for.
 ///
 /// A word that is the start of another word of the query (`ca` next to
 /// `card`, or `card` twice) is left out: every card the longer one finds,
@@ -74,7 +88,7 @@ pub(crate) fn rebuild_search_index(conn: &Connection) -> Result<()> {
 ///
 /// Only the first [`MAX_QUERY_BYTES`] of the words searched are read,
 /// counted once folded; what separates them (spaces, and words without a
-/// letter or digit) does not count.
+/// token character) does not count.
 #[must_use]
 pub(crate) fn fts_query(text: &str) -> Option<String> {
     let mut budget = MAX_QUERY_BYTES;
@@ -84,15 +98,12 @@ pub(crate) fn fts_query(text: &str) -> Option<String> {
         if budget == 0 {
             break;
         }
-        // What comes before a word's first letter or digit (`---abc`,
+        // What comes before a word's first token character (`---abc`,
         // accents on their own) holds no token, so it is left out before
-        // anything is cut: padding never uses up the budget. Known miss:
-        // FTS5 reads a private-use character (`Co`) as part of a token,
-        // which Rust does not call alphanumeric, so one at the start of a
-        // word is cut off here and the word ("\u{E000}abc") is searched as
-        // "abc", which does not find the token "\u{E000}abc".
-        // `same_front::starts_token` knows these characters.
-        let raw = raw.trim_start_matches(|c: char| !c.is_alphanumeric());
+        // anything is cut: padding never uses up the budget. A private-use
+        // character counts as a token character (`starts_token`): FTS5
+        // keeps it in the token, so "\u{E000}abc" is one word, not "abc".
+        let raw = raw.trim_start_matches(|c: char| !starts_token(c));
         if raw.is_empty() {
             continue;
         }
@@ -103,8 +114,8 @@ pub(crate) fn fts_query(text: &str) -> Option<String> {
         // requires less, so it still finds at least what the whole would.
         let folded = search_key(cut_to(raw, budget.saturating_mul(4)));
         // Folding can remove a leading mark and uncover punctuation.
-        let word = folded.trim_start_matches(|c: char| !c.is_alphanumeric());
-        // A word without a letter or digit (`**`, `-`) has no token to match.
+        let word = folded.trim_start_matches(|c: char| !starts_token(c));
+        // A word without a token character (`**`, `-`) has nothing to match.
         // FTS5 may read a lone symbol Rust calls alphanumeric (ⓐ) as no
         // token at all and ignore that word; harmless.
         if word.is_empty() {
@@ -133,7 +144,7 @@ pub(crate) fn fts_query(text: &str) -> Option<String> {
 }
 
 /// How much of the query is searched, in UTF-8 bytes of its folded words
-/// from their first letter or digit on: far more than any search needs
+/// from their first token character ([`starts_token`]) on: far more than any search needs
 /// (about 150 words). Separators and padding do not count, so this is no
 /// limit on what may be typed; cutting the entry at this many bytes would
 /// hide words behind padding. FTS5 reads the matches of every token of a
