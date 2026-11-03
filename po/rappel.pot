@@ -145,6 +145,10 @@ msgid "Insert Audio in Front"
 msgstr ""
 
 #: crates/app/data/card_editor.blp
+msgid "Show Card"
+msgstr ""
+
+#: crates/app/data/card_editor.blp
 msgid "Back"
 msgstr ""
 
@@ -1070,6 +1074,44 @@ msgstr ""
 #: crates/app/src/dialogs/card_editor/mod.rs
 msgid "The back is too long (the limit is {limit} bytes)"
 msgstr ""
+
+#. Translators: under the front in the card editor. {deck} is a deck's name.
+#: crates/app/src/dialogs/card_editor/same_front.rs
+msgid "A card in “{deck}” has the same front"
+msgstr ""
+
+#. Translators: under the front in the card editor. {deck} is a deck's name.
+#: crates/app/src/dialogs/card_editor/same_front.rs
+msgid "A card in the archived deck “{deck}” has the same front"
+msgstr ""
+
+#. Translators: under the front in the card editor, for two or more cards. {deck} is a deck's name.
+#: crates/app/src/dialogs/card_editor/same_front.rs
+msgid "{count} card in “{deck}” has the same front"
+msgid_plural "{count} cards in “{deck}” have the same front"
+msgstr[0] ""
+msgstr[1] ""
+
+#. Translators: under the front in the card editor, for two or more cards. {deck} is a deck's name.
+#: crates/app/src/dialogs/card_editor/same_front.rs
+msgid "{count} card in the archived deck “{deck}” has the same front"
+msgid_plural "{count} cards in the archived deck “{deck}” have the same front"
+msgstr[0] ""
+msgstr[1] ""
+
+#. Translators: under the front in the card editor, for two or more cards in two or more decks.
+#: crates/app/src/dialogs/card_editor/same_front.rs
+msgid "{count} card in several decks has the same front"
+msgid_plural "{count} cards in several decks have the same front"
+msgstr[0] ""
+msgstr[1] ""
+
+#. Translators: under the front in the card editor, for two or more cards in two or more decks, one of them at least archived.
+#: crates/app/src/dialogs/card_editor/same_front.rs
+msgid "{count} card in several decks has the same front, archived decks included"
+msgid_plural "{count} cards in several decks have the same front, archived decks included"
+msgstr[0] ""
+msgstr[1] ""
 
 #. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
 #: crates/app/src/dialogs/card_info.rs

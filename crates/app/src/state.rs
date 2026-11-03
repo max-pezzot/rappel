@@ -21,8 +21,8 @@ use rappel_core::media::{CleanedUp, MediaRef, TrashTidied, UnusedMedia};
 use rappel_core::scheduling::{StudyInput, StudyScope};
 use rappel_core::stats::{CardInfo, DayGrid, Stats};
 use rappel_core::storage::{
-    self, BackupInfo, BrowseQuery, BrowseRow, Merged, Moved, OpenWarning, Restored, Scope, Store,
-    TagsAdded,
+    self, BackupInfo, BrowseQuery, BrowseRow, Merged, Moved, OpenWarning, Restored, SameFront,
+    Scope, Store, TagsAdded,
 };
 
 use crate::clock::{local_day_bounds_ms, local_day_start_ms, local_next_day_start_ms};
@@ -629,6 +629,16 @@ impl AppState {
             past_starts: past_bounds,
             ahead_starts: ahead_bounds,
         })
+    }
+
+    /// The other live cards whose front reads the same as `front_md` (see
+    /// [`Store::cards_with_front`]).
+    pub fn cards_with_front(
+        &self,
+        front_md: &str,
+        except_id: Option<&str>,
+    ) -> rappel_core::Result<Vec<SameFront>> {
+        self.0.store.borrow().cards_with_front(front_md, except_id)
     }
 
     /// A card's properties and history at `now` (see [`Store::card_info`]).

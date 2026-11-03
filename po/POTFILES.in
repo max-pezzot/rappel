@@ -34,6 +34,7 @@ crates/app/src/dialogs/about.rs
 crates/app/src/dialogs/card_editor/insert.rs
 crates/app/src/dialogs/card_editor/media.rs
 crates/app/src/dialogs/card_editor/mod.rs
+crates/app/src/dialogs/card_editor/same_front.rs
 crates/app/src/dialogs/card_info.rs
 crates/app/src/dialogs/card_info/text.rs
 crates/app/src/dialogs/clean_up.rs

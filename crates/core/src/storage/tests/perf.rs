@@ -523,6 +523,54 @@ fn merging_a_deck_of_ten_thousand_cards_is_fast() {
     assert_cpu_within(unmerge, ms(MERGE_MS), "unmerge_deck (10,000)");
 }
 
+/// The card editor's same-front lookup (#119, ADR 0072) on 10,000 cards
+/// whose fronts all hold the word "card", and 2,000 more with one front:
+/// a word every front holds (each read and compared, none kept), a front
+/// one card has, a front 2,000 cards share, pasted fronts of 64 KiB (the
+/// longest looked up), words or dense Markdown (their phrase cut to 256
+/// bytes), and one of 1 MiB, which is not even parsed.
+#[test]
+fn finding_the_same_front_in_ten_thousand_cards_is_fast() {
+    let mut store = Store::in_memory();
+    let deck = store.create_deck_at("Big", T0).unwrap().id;
+    let other = store.create_deck_at("Other", T0).unwrap().id;
+    for i in 0..10_000 {
+        store
+            .add_card_at(&deck, &format!("Card {i}"), "back", T0)
+            .unwrap();
+    }
+    for _ in 0..2_000 {
+        store.add_card_at(&other, "**Hola**", "back", T0).unwrap();
+    }
+    let pasted = "card ".repeat(crate::storage::MAX_SAME_FRONT_BYTES / 5);
+    let unit = "**a** _b_ $x^2$ `c` [d](e) ";
+    let markdown = unit.repeat(crate::storage::MAX_SAME_FRONT_BYTES / unit.len());
+    let huge = unit.repeat((1 << 20) / unit.len());
+    let cases: [(&str, &str, usize, u64); 6] = [
+        ("a word every front holds", "card", 0, SAME_FRONT_MS),
+        ("a front one card has", "CARD 9999", 1, SAME_FRONT_MS),
+        ("a front 2,000 cards share", "hola", 2_000, SAME_FRONT_MS),
+        (
+            "a pasted front of 64 KiB of words",
+            &pasted,
+            0,
+            PASTED_FRONT_MS,
+        ),
+        (
+            "a pasted front of 64 KiB of Markdown",
+            &markdown,
+            0,
+            PASTED_FRONT_MS,
+        ),
+        ("a pasted front of 1 MiB", &huge, 0, SAME_FRONT_MS),
+    ];
+    for (what, front, expected, bound) in cases {
+        let (t, same) = fastest(what, 3, || store.cards_with_front(front, None).unwrap());
+        assert_eq!(same.len(), expected, "{what}");
+        assert_cpu_within(t, ms(bound), what);
+    }
+}
+
 /// Entries in the log of `a_card_with_a_long_log_is_fast`'s card.
 const LONG_LOG: usize = 20_000;
 
@@ -784,5 +832,13 @@ const LONG_LOG_IMPORT_MS: u64 = 6_000;
 /// Parsing, setting or replacing 5,000 tags on one card (measured 15 ms,
 /// 185 ms and 209 ms).
 const TAGS_MS: u64 = 2_000;
+/// Each same-front lookup of `finding_the_same_front_in_ten_thousand_cards_is_fast`
+/// but the pasted one (measured 25 ms at most, for the word every front
+/// holds: 10,000 fronts read and compared).
+const SAME_FRONT_MS: u64 = 250;
+/// The pasted fronts of 64 KiB (measured 34 ms for the words, which every
+/// front starts with, and 20 ms for the Markdown, in a debug build; 1 MiB
+/// of that Markdown took 330 ms before the cap, 87 ms in release).
+const PASTED_FRONT_MS: u64 = 400;
 /// The migration's index backfill of 5,000 cards (measured 87 ms).
 const REBUILD_INDEX_MS: u64 = 1_000;
