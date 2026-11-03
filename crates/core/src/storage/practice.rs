@@ -89,25 +89,48 @@ impl Store {
 /// [`Store::has_practisable`], so they cannot disagree.
 const PRACTISABLE: &str = "c.deleted_at IS NULL AND c.suspended = 0";
 
-/// Runs `read` on `conn` with `PRAGMA query_only` on, then turns it off
-/// again, also when `read` fails: while it is on, SQLite refuses any
-/// change to the database (`SQLITE_READONLY`), so a write slipped into a
-/// practice's read fails instead of landing (ADR 0070). The pragma is a
-/// setting of the connection, not a write: it changes neither the file nor
+/// Runs `read` on `conn` with `PRAGMA query_only` on ([`QueryOnly`]):
+/// while it is on, SQLite refuses any change to the database
+/// (`SQLITE_READONLY`), so a write slipped into a practice's read fails
+/// instead of landing (ADR 0070). The pragma is a setting of the
+/// connection, not a write: it changes neither the file nor
 /// `data_version`.
 ///
 /// # Errors
-/// `read`'s error first, else a failure to set or clear the pragma.
+/// A failure to set the pragma, or `read`'s error.
 pub(super) fn query_only<T>(
     conn: &Connection,
     read: impl FnOnce(&Connection) -> Result<T>,
 ) -> Result<T> {
-    conn.pragma_update(None, "query_only", true)?;
-    let out = read(conn);
-    let cleared = conn.pragma_update(None, "query_only", false);
-    let out = out?;
-    cleared?;
-    Ok(out)
+    let _guard = QueryOnly::new(conn)?;
+    read(conn)
+}
+
+/// `PRAGMA query_only` on for as long as it lives: on in [`Self::new`],
+/// off again when dropped, so a read that returns early, fails or panics
+/// still leaves the connection writable for the app's own writes.
+struct QueryOnly<'c>(&'c Connection);
+
+impl<'c> QueryOnly<'c> {
+    /// Turns `query_only` on for `conn`.
+    ///
+    /// # Errors
+    /// If SQLite cannot set it; it is then not on.
+    fn new(conn: &'c Connection) -> Result<Self> {
+        conn.pragma_update(None, "query_only", true)?;
+        Ok(Self(conn))
+    }
+}
+
+impl Drop for QueryOnly<'_> {
+    fn drop(&mut self) {
+        // Setting a pragma of an open connection does not fail in
+        // practice; if it ever does, it is logged (no card content), and
+        // the next write reports SQLITE_READONLY rather than writing.
+        if let Err(err) = self.0.pragma_update(None, "query_only", false) {
+            tracing::warn!("cannot turn query_only off after a practice read: {err}");
+        }
+    }
 }
 
 /// The live, unsuspended cards of `from` (whose cards table is `c`) that

@@ -359,6 +359,21 @@ fn a_write_inside_a_practices_read_is_refused() {
     store.create_deck_at("After", T0).unwrap();
 }
 
+/// A read that panics still leaves the connection writable: the guard
+/// turns `query_only` off as the panic unwinds.
+#[test]
+fn a_panicking_practice_read_leaves_the_store_writable() {
+    let mut store = Store::in_memory();
+    let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        query_only(&store.conn, |_| -> crate::Result<()> {
+            panic!("a read went wrong");
+        })
+    }));
+    assert!(panicked.is_err());
+    assert!(!is_query_only(&store));
+    store.create_deck_at("After", T0).unwrap();
+}
+
 /// `has_practisable` says whether `practice_queue` has a card, for every
 /// kind of scope.
 #[test]

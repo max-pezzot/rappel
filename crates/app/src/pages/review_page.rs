@@ -10,8 +10,9 @@
 //! the core's [`Practice`] instead: lowest retrievability first, the same
 //! Fail and Pass, and **nothing written**. Its answers and their Undo go
 //! only to the [`Practice`] in memory (`grade_practice`, `undo_practice`,
-//! which call no writing method of [`AppState`]: the tests enforce it); a banner says "Practice — nothing
-//! is rescheduled" and the summary "Practice: nothing was rescheduled".
+//! which call no writing method of [`AppState`]: the tests enforce it); a
+//! banner says "Practice — nothing is rescheduled" and the summary
+//! "Practice: nothing was rescheduled".
 //! Edit, Card Information, Suspend, Move to Deck and Delete work as in a
 //! session: explicit card commands, each with its own Undo, that do not
 //! reschedule, so the summary stays true.
@@ -1544,20 +1545,29 @@ impl ReviewPage {
     }
 
     /// Whether card `id` can still be practised here: live, not
-    /// suspended, and in a deck that is not archived nor left by this
-    /// page (`left_decks`). Only reads.
+    /// suspended, in a deck that is not archived nor left by this page
+    /// (`left_decks`), and still in the practice's scope: in its deck (not
+    /// moved since), or carrying its tag (not untagged since). Only reads.
     fn practisable_card(&self, id: &str) -> bool {
         let imp = self.imp();
-        let Some(state) = imp.state.get() else {
+        let (Some(state), Some(studied)) = (imp.state.get(), imp.studied.get()) else {
             return false;
         };
-        state.card(id).is_ok_and(|card| {
-            !card.suspended
-                && !imp.left_decks.borrow().contains(&card.deck_id)
-                && state
-                    .deck(&card.deck_id)
-                    .is_ok_and(|deck| !deck.is_archived())
-        })
+        let Ok(card) = state.card(id) else {
+            return false;
+        };
+        let in_scope = match studied {
+            Studied::Deck { deck, .. } => card.deck_id == deck.id,
+            Studied::Tag { tag, .. } => state
+                .card_tags(id)
+                .is_ok_and(|tags| tags.iter().any(|t| t.id == tag.id)),
+        };
+        in_scope
+            && !card.suspended
+            && !imp.left_decks.borrow().contains(&card.deck_id)
+            && state
+                .deck(&card.deck_id)
+                .is_ok_and(|deck| !deck.is_archived())
     }
 
     /// Practice from the summary's button: this page gives way to a
@@ -3869,6 +3879,62 @@ mod tests {
                 pass(&page);
             }
             assert!(!rest.contains(&answered));
+        });
+    }
+
+    /// Undo does not bring back a card moved out of the practised deck
+    /// since its answer, nor one that lost the practised tag: their answers
+    /// are stepped over as for a deleted card.
+    #[test]
+    fn a_practice_undo_steps_over_cards_moved_or_untagged_since() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state, page, _) = page_of(3);
+            drop(page);
+            let deck = state.decks().unwrap().remove(0);
+            let other = state.create_deck("Other").unwrap();
+            let page = practice_of(&state, &deck);
+            let _window = in_window(&page);
+            let first = current(&page).unwrap();
+            pass(&page);
+            let second = current(&page).unwrap();
+            pass(&page);
+            let third = current(&page);
+            state
+                .move_cards(std::slice::from_ref(&second), &other.id)
+                .unwrap();
+            page.undo();
+            assert_eq!(current(&page), Some(first));
+            assert!(!can_undo(&page));
+            assert!(page.imp().errors.is_empty(), "no error toast");
+            let mut rest = Vec::new();
+            while let Some(id) = current(&page) {
+                assert!(rest.len() < 10, "the practice does not end");
+                rest.push(id);
+                pass(&page);
+            }
+            assert!(!rest.contains(&second));
+            assert!(third.is_some_and(|t| rest.contains(&t)));
+
+            // A tag's practice: a card untagged since is stepped over.
+            let a = due_card(&state, &other.id, "t1", &["t"]);
+            let b = due_card(&state, &other.id, "t2", &["t"]);
+            let studied = Studied::Tag {
+                tag: tag_named(&state, "t"),
+                from: StartedFrom::AllCards,
+            };
+            let page = ReviewPage::practice(state.clone(), studied, |_| {}).unwrap();
+            let _window = in_window(&page);
+            let answered = current(&page).unwrap();
+            pass(&page);
+            let on_screen = current(&page).unwrap();
+            assert!([&a, &b].contains(&&answered));
+            let card = state.card(&answered).unwrap();
+            state
+                .edit_card_with_tags(&answered, &card.front_md, &card.back_md, Some(&[]))
+                .unwrap();
+            page.undo();
+            assert_eq!(current(&page), Some(on_screen));
+            assert!(!can_undo(&page));
         });
     }
 }

@@ -448,9 +448,9 @@ fn bulk_writes_on_five_thousand_cards_are_fast() {
     }
 }
 
-/// Merge Into… on a deck of 10,000 cards, a tenth of them deleted, and its
-/// Undo: one statement each for the cards (ADR 0066), so well under a
-/// second even in a debug build.
+/// Practice of a deck of 10,000 cards, 4,000 of them reviewed: the queue
+/// reads every card and orders them by retrievability in Rust, and
+/// `has_practisable` is one `EXISTS` (ADR 0070).
 #[test]
 fn practising_ten_thousand_cards_is_fast() {
     let (mut store, deck) = scratch_store();
@@ -482,6 +482,9 @@ fn practising_ten_thousand_cards_is_fast() {
     assert_cpu_within(exists, ms(PRACTICE_MS), "has_practisable (10,000)");
 }
 
+/// Merge Into… on a deck of 10,000 cards, a tenth of them deleted, and its
+/// Undo: one statement each for the cards (ADR 0066), so well under a
+/// second even in a debug build.
 #[test]
 fn merging_a_deck_of_ten_thousand_cards_is_fast() {
     const MERGED: usize = 10_000;
