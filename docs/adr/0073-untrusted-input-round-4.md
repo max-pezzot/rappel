@@ -7,7 +7,7 @@
 
 ## Context
 
-Phase 3a added new ways in and new bulk work: the import's `archived_at` and its rule that an import keeps a card's deck (ADR 0067, 0068), merging decks and its Undo (ADR 0066), archiving (ADR 0068), sessions over a tag (ADR 0069), practice that writes nothing (ADR 0070), the export that leaves its media out (ADR 0071), the editor's same-front lookup (ADR 0072), and selection mode on the deck page (ADR 0065). Rounds 1 to 3 (ADR 0025, 0050, 0063) kept one table per round; this is round 4, numbered on from row 73. Earlier slices also handed this one follow-ups from their reviews.
+Phase 3a added new ways in and new bulk work: the import's `archived_at` and its rule that an import keeps a card's deck (ADR 0067, 0068), merging decks and its Undo (ADR 0066), archiving (ADR 0068), sessions over a tag (ADR 0069), practice that writes nothing (ADR 0070), the export that leaves its media out (ADR 0071), the editor's same-front lookup (ADR 0072), and selection mode on the deck page (ADR 0065). Rounds 1 to 3 (ADR 0025, 0050, 0063) kept one table per round; this is round 4, with rows 74 on. Earlier slices also handed this one follow-ups from their reviews.
 
 ## Decision
 
@@ -50,7 +50,7 @@ As ADR 0050 and 0063: each attack is a test; one that passes at once means the d
 | 85 | **Typed fronts against the lookup**: FTS5 syntax, NUL, odd Unicode, private-use characters, 64 KiB and more | core | **Held** (slice 7b's tests, run again). | `storage::same_front::tests::*`, `perf::finding_the_same_front_in_ten_thousand_cards_is_fast` |
 | 86 | **A search word starting with a private-use character** | core | **Fixed** (slice 7b's follow-up, above). | `storage::search::tests::a_word_starting_with_a_private_use_character_is_found` |
 | 87 | **A deck name holding ":", ". ", ";" or quotation marks in an error toast** | app | **Fixed** (above). | `ui::toast::tests::a_name_never_splits_a_title`, `dialogs::merge_deck::tests::a_failed_undo_says_why_in_words` |
-| 88 | **Archive and unarchive racing an open deck page**: the Undo of "Deck unarchived" while the deck's page and a session over it are open, pressed twice; then unarchive, reopen and archive from the page at once | app | **Held.** Both pages leave for the deck list, the session writes nothing more, the second Undo is refused (`DeckArchived`) and keeps the first stamp; the list and the "Archived Decks" row are right after each step. | `window::tests::archiving_races_with_an_open_deck_page_and_its_session` |
+| 88 | **Archive and unarchive racing an open deck page**: the Undo of "Deck unarchived" while the deck's page and a session over it are open, pressed twice; then unarchive, reopen and archive from the page at once | app | **Held.** Both pages leave for the deck list, leaving the session writes no log entry, the second Undo is refused (`DeckArchived`) and keeps the first stamp; the list and the "Archived Decks" row are right after each step. | `window::tests::archiving_races_with_an_open_deck_page_and_its_session` |
 
 ## Consequences
 

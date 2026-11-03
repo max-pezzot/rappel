@@ -1835,6 +1835,38 @@ mod tests {
         });
     }
 
+    /// Slice 2's review (ADR 0073): outside selection mode, a change of one
+    /// row and a refresh of the header and bar cost no walk of the list.
+    /// Before, each single-row change collected every card id to drop the
+    /// cards that left the choice, and each refresh read every item to
+    /// find the chosen ones, even with none chosen: O(n) per change, so a
+    /// thousand changes of a 10,000-card list took 8.6 s of CPU in a debug
+    /// build (checked on the code without the fix); now 19 ms (bound 200 ms).
+    #[test]
+    fn with_nothing_chosen_a_change_of_one_row_costs_no_walk_of_the_list() {
+        crate::testing::with_widgets(|| {
+            const N: u32 = 10_000;
+            let (_tmp, state, _deck, _ids) = crate::testing::state_with_many_cards(N as usize);
+            let page = page_over(&state, None);
+            let store = page.imp().items.get().unwrap().clone();
+            assert_eq!(store.n_items(), N);
+            let selection = page.selection();
+            assert!(!selection.active());
+            let (cpu, ()) = crate::testing::cpu_time_of(|| {
+                for k in 0..1_000 {
+                    let p = (k * 7) % N;
+                    let item = page.item(p).unwrap();
+                    store.splice(p, 1, &[item]);
+                    selection.update();
+                }
+            });
+            assert_eq!(store.n_items(), N);
+            assert_eq!(selection.chosen_ids().len(), 0);
+            crate::testing::print_timing("All Cards: 1,000 idle row changes", cpu);
+            crate::testing::assert_cpu_within(cpu, Duration::from_millis(200), "1,000 row changes");
+        });
+    }
+
     /// Hardening round 4 (ADR 0073): Ctrl+A on 10,000 cards. Choosing them
     /// all is quick (CPU time, ADR 0049), the header counts them, the list
     /// still builds only the rows on screen, and Delete on all of them and

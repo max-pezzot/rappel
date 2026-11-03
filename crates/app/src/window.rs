@@ -1140,7 +1140,7 @@ mod tests {
     /// Hardening round 4 (ADR 0073): archive and unarchive racing an open
     /// deck page. The deck's page has a study session open over it when
     /// the Undo of an older "Deck unarchived" archives the deck: both pages
-    /// leave for the deck list, the session writes nothing more, and a
+    /// leave for the deck list, leaving writes no log entry, and a
     /// second Undo (the toast pressed again) changes nothing. Then the deck
     /// is unarchived and archived again from its page in a row, as fast as
     /// the code allows: one stamp, the list right each time.
@@ -1192,7 +1192,10 @@ mod tests {
                 Err(rappel_core::Error::DeckArchived(_))
             ));
             assert_eq!(state.deck(&id).unwrap().archived_at, stamp);
-            assert_eq!(log(&state), before, "the session wrote nothing");
+            // Leaving the session on the archive wrote no log entry (no answer
+            // was given in it, so this checks that leaving itself writes
+            // nothing, not that a later answer is refused).
+            assert_eq!(log(&state), before, "leaving the session wrote nothing");
             let listed = || -> Vec<String> {
                 imp.decks_page
                     .deck_rows()

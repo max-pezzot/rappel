@@ -801,11 +801,17 @@ fn hostile_stored_fronts_keep_the_same_front_lookup_fast() {
     let mut store = Store::in_memory();
     let deck = store.create_deck_at("Imported", T0).unwrap().id;
     let words = "card ".repeat((1 << 20) / 5);
-    let spaces = format!("card{}card", " ".repeat(1 << 20));
-    let mut fronts = vec![words.clone(); 254];
-    fronts.push(format!("{}x", words.trim_end()));
-    fronts.push(spaces);
-    for front in &fronts {
+    // Each front is made just before it is written, so at most one is in
+    // memory besides the database (256 of them would be 256 MiB).
+    let front = |i: usize| -> std::borrow::Cow<'_, str> {
+        match i {
+            254 => format!("{}x", words.trim_end()).into(),
+            255 => format!("card{}card", " ".repeat(1 << 20)).into(),
+            _ => words.as_str().into(),
+        }
+    };
+    for i in 0..256 {
+        let front = front(i);
         let card = store.add_card_at(&deck, "card", "back", T0).unwrap().id;
         // The index row as an import of that front would write it (parsing
         // 256 MiB of Markdown here would only slow the test down).
@@ -814,7 +820,7 @@ fn hostile_stored_fronts_keep_the_same_front_lookup_fast() {
             .execute(
                 "UPDATE cards_fts SET front = ?1
                  WHERE rowid = (SELECT seq FROM cards WHERE id = ?2)",
-                rusqlite::params![front, card],
+                rusqlite::params![front.as_ref(), card],
             )
             .unwrap();
     }

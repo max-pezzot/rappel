@@ -85,7 +85,9 @@ fn first_clause_end(text: &str, skip_quoted: bool) -> Option<(usize, &'static st
 }
 
 /// Whether byte `at` of `text` is inside quotation marks (“…” or « … »),
-/// counting the marks before it.
+/// counting the marks before it. A guard for texts built elsewhere, not
+/// proof against a name holding a quotation mark: a text that starts with
+/// a name must be made with [`Message::from_template`].
 fn quoted_at(text: &str, at: usize) -> bool {
     let mut depth = 0_usize;
     for c in text[..at].chars() {

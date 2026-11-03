@@ -593,8 +593,13 @@ fn a_word_starting_with_a_private_use_character_is_found() {
         ["\u{F0000}x \u{10FFFD}"]
     );
     assert_eq!(fronts(&store, &query("\u{F8FF}")), ["\u{F8FF}"]);
-    // A private-use character counts toward the budget like a letter.
+    // A private-use character starts a word, and a word of them is cut at
+    // the byte budget like any other: never inside a character (3 bytes
+    // each here, so 341 of them fit in 1,023 of the 1,024 bytes).
     assert!(starts_token('\u{E000}') && starts_token('\u{F0000}') && starts_token('\u{10FFFD}'));
+    let long = format!("--{}", "\u{E000}".repeat(400));
+    let cut = format!("\"{}\"*", "\u{E000}".repeat(MAX_QUERY_BYTES / 3));
+    assert_eq!(fts_query(&long), Some(cut));
     // Not punctuation, nor the noncharacters at the planes' ends.
     for c in ['-', '\u{FFFE}', '\u{FFFFE}', '\u{10FFFF}'] {
         assert!(!starts_token(c), "{c:?}");

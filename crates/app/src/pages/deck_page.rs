@@ -479,9 +479,14 @@ impl DeckPage {
                 return;
             }
         };
-        let items: Vec<CardObject> = (0..store.n_items())
-            .filter_map(|position| self.item(position))
-            .collect();
+        // Every position must give its item, or the flags would no longer
+        // line up with the positions spliced below.
+        let Some(items) = (0..store.n_items())
+            .map(|position| self.item(position))
+            .collect::<Option<Vec<CardObject>>>()
+        else {
+            return;
+        };
         let flags: Vec<(bool, bool)> = items
             .iter()
             .map(|item| (item.is_new(), new.contains(&item.card().id)))
