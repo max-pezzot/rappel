@@ -3,7 +3,8 @@
 use std::path::Path;
 
 use rappel_core::interchange::{
-    Conflict, FILE_EXTENSION, ImportProblem, ImportReport, ImportSummary, SettingsImport,
+    Conflict, FILE_EXTENSION, ImportProblem, ImportReport, ImportSummary, MediaOverLimit,
+    SettingsImport,
 };
 
 use rappel_core::{Error, content};
@@ -99,22 +100,97 @@ pub(super) fn exported_without_media_text(path: &Path, left_out: usize) -> Strin
     )
 }
 
-/// The body of "Export Without Media?": what the media add up to
-/// (`media_bytes`) and why that matters, in the user's units.
-pub(super) fn without_media_body(media_bytes: u64) -> String {
-    fill(
-        // Translators: the body of a question. {size} is a size such as
-        // "2.4 GiB". An import reads at most 2 GiB from one file.
-        &gettext(
-            "The media files add up to {size}, more than the 2 GiB that Rappel reads from one \
-             file. An export with them could not be imported again by Rappel. Export without \
-             them instead? Decks, cards and their history are exported; the media files stay \
-             where they are, and cards keep their references to them.",
+/// Why "Export Without Media?" is asked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum OverLimit {
+    /// Before writing: with its media the file would take at least
+    /// `at_least` bytes (core's `MediaOverLimit::Size`).
+    Size {
+        /// The least the file would take.
+        at_least: u64,
+    },
+    /// Before writing: `files` media files are more entries than an import
+    /// reads (core's `MediaOverLimit::Files`).
+    Files {
+        /// How many media files.
+        files: usize,
+    },
+    /// After writing: the file came to `bytes` and was not kept.
+    Written {
+        /// The size it came to.
+        bytes: u64,
+    },
+}
+
+impl From<MediaOverLimit> for OverLimit {
+    fn from(over: MediaOverLimit) -> Self {
+        match over {
+            MediaOverLimit::Size { at_least } => Self::Size { at_least },
+            MediaOverLimit::Files { files } => Self::Files { files },
+        }
+    }
+}
+
+/// A size in the user's units ("2.4 GiB").
+fn size_text(bytes: u64) -> String {
+    gtk::glib::format_size_full(bytes, gtk::glib::FormatSizeFlags::IEC_UNITS).to_string()
+}
+
+/// The body of "Export Without Media?": why an export with the media could
+/// not be imported again, in the words true of `why`, and what the other
+/// choice keeps.
+pub(super) fn without_media_body(why: OverLimit) -> String {
+    let reason = match why {
+        OverLimit::Size { at_least } => fill(
+            // Translators: the start of a question's body. {size} is a size
+            // such as "2.4 GiB". An import reads at most 2 GiB from one file.
+            &gettext(
+                "With its media files, the export would take at least {size}, more than the \
+                 2 GiB that Rappel reads from one file, so Rappel could not import it again.",
+            ),
+            &[("size", &size_text(at_least))],
         ),
-        &[(
-            "size",
-            &gtk::glib::format_size_full(media_bytes, gtk::glib::FormatSizeFlags::IEC_UNITS),
-        )],
+        OverLimit::Files { files } => fill(
+            // Translators: the start of a question's body. {count} is a
+            // number of media files (images, sounds), always very large.
+            &ngettext(
+                "The export would hold {count} media file, more files than Rappel reads from \
+                 one export, so Rappel could not import it again.",
+                "The export would hold {count} media files, more files than Rappel reads from \
+                 one export, so Rappel could not import it again.",
+                files,
+            ),
+            &[("count", &group_digits(files))],
+        ),
+        OverLimit::Written { bytes } => fill(
+            // Translators: the start of a question's body. {size} is a size
+            // such as "2.4 GiB". An import reads at most 2 GiB from one file.
+            &gettext(
+                "The export came to {size}, more than the 2 GiB that Rappel reads from one \
+                 file, so Rappel could not import it again. It was not saved.",
+            ),
+            &[("size", &size_text(bytes))],
+        ),
+    };
+    // Translators: the end of the question's body, after why it is asked.
+    let offer = gettext(
+        "Export without the media instead? Decks, cards and their history are exported; the \
+         media files stay where they are, and cards keep their references to them.",
+    );
+    format!("{reason} {offer}")
+}
+
+/// The toast when even the export without media came to `bytes`, more
+/// than an import reads: nothing more to leave out.
+pub(super) fn too_large_without_media_text(bytes: u64) -> String {
+    fill(
+        // Translators: a toast: what is before ":" is its title, the rest
+        // is behind Details. {size} is a size such as "2.4 GiB".
+        &gettext(
+            "The export failed: even without its media it came to {size}, more than the 2 GiB \
+             that Rappel reads from one file. It was not saved.",
+        ),
+        &[("size", &size_text(bytes))],
     )
 }
 
@@ -530,14 +606,60 @@ mod tests {
         );
     }
 
+    /// Each reason for "Export Without Media?" says only what is true of
+    /// it, and every one ends with what the other choice keeps.
     #[test]
-    fn the_question_names_the_size_of_the_media() {
-        let body = without_media_body(3 << 30);
-        assert!(body.contains("3.0\u{a0}GiB"), "{body}");
-        assert!(body.contains("2 GiB"), "{body}");
-        assert!(body.contains("could not be imported again"), "{body}");
-        // Plain text: the size is the only thing filled in.
-        assert!(!body.contains('{'), "{body}");
+    fn the_question_says_why_in_the_words_of_its_case() {
+        let offer = "Export without the media instead? Decks, cards and their history are \
+                     exported; the media files stay where they are, and cards keep their \
+                     references to them.";
+        assert_eq!(
+            without_media_body(OverLimit::Size { at_least: 3 << 30 }),
+            format!(
+                "With its media files, the export would take at least 3.0\u{a0}GiB, more than \
+                 the 2 GiB that Rappel reads from one file, so Rappel could not import it \
+                 again. {offer}"
+            )
+        );
+        assert_eq!(
+            without_media_body(OverLimit::Files { files: 120_000 }),
+            format!(
+                "The export would hold 120,000 media files, more files than Rappel reads from \
+                 one export, so Rappel could not import it again. {offer}"
+            )
+        );
+        assert_eq!(
+            without_media_body(OverLimit::Written {
+                bytes: (2 << 30) + (300 << 20)
+            }),
+            format!(
+                "The export came to 2.3\u{a0}GiB, more than the 2 GiB that Rappel reads from \
+                 one file, so Rappel could not import it again. It was not saved. {offer}"
+            )
+        );
+        // Core's reasons map to the ones before writing.
+        assert_eq!(
+            OverLimit::from(MediaOverLimit::Size { at_least: 7 }),
+            OverLimit::Size { at_least: 7 }
+        );
+        assert_eq!(
+            OverLimit::from(MediaOverLimit::Files { files: 7 }),
+            OverLimit::Files { files: 7 }
+        );
+    }
+
+    /// Even without media the file was too large: its own words, a short
+    /// title, and no offer to leave out what is already left out.
+    #[test]
+    fn too_large_without_media_says_nothing_was_saved() {
+        let text = too_large_without_media_text((2 << 30) + (300 << 20));
+        assert_eq!(
+            text,
+            "The export failed: even without its media it came to 2.3\u{a0}GiB, more than the \
+             2 GiB that Rappel reads from one file. It was not saved."
+        );
+        assert!(!text.contains("instead"), "{text}");
+        assert_has_a_title(&text);
     }
 
     #[test]
@@ -952,6 +1074,20 @@ mod tests {
             let path = Path::new("/home/me/Documents/rappel-2026-10-16.rappel");
             for missing in [0, 1, 99_999] {
                 assert_has_a_title(&exported_text(path, missing));
+            }
+            assert_has_a_title(&exported_without_media_text(path, 3));
+            assert_has_a_title(&too_large_without_media_text(3 << 30));
+            // Each reason of "Export Without Media?" is French, with the
+            // offer after it.
+            for why in [
+                OverLimit::Size { at_least: 3 << 30 },
+                OverLimit::Files { files: 120_000 },
+                OverLimit::Written { bytes: 3 << 30 },
+            ] {
+                let body = without_media_body(why);
+                assert!(!body.contains("Rappel reads"), "{body}");
+                assert!(!body.contains("instead"), "{body}");
+                assert!(!body.contains('{'), "{body}");
             }
             for problem in [ImportProblem::EarlyTestVersion, ImportProblem::NotAFile] {
                 assert_has_a_title(&refused_text(&problem));

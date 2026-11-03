@@ -403,9 +403,7 @@ pub enum Error {
     /// The export came out larger than an import reads
     /// ([`MAX_ARCHIVE_BYTES`](crate::interchange::MAX_ARCHIVE_BYTES)), so it
     /// could not be imported again. The file was not kept (ADR 0071).
-    #[error(
-        "the export is {bytes} bytes, more than the {limit} bytes an import reads; export without the media instead"
-    )]
+    #[error("the export is {bytes} bytes, more than the {limit} bytes an import reads")]
     ExportTooLarge {
         /// The size it came to.
         bytes: u64,

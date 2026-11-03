@@ -2510,10 +2510,32 @@ msgid_plural "Media left out. Exported to “{name}” without its {count} media
 msgstr[0] "Médias exclus. Exporté dans « {name} » sans {count} fichier média"
 msgstr[1] "Médias exclus. Exporté dans « {name} » sans {count} fichiers médias"
 
-#. Translators: the body of a question. {size} is a size such as "2.4 GiB". An import reads at most 2 GiB from one file.
+#. Translators: the start of a question's body. {size} is a size such as "2.4 GiB". An import reads at most 2 GiB from one file.
 #: crates/app/src/transfer/text.rs
-msgid "The media files add up to {size}, more than the 2 GiB that Rappel reads from one file. An export with them could not be imported again by Rappel. Export without them instead? Decks, cards and their history are exported; the media files stay where they are, and cards keep their references to them."
-msgstr "Les fichiers médias font {size} en tout, soit plus que les 2 Gio que Rappel lit dans un seul fichier. Un export qui les contiendrait ne pourrait pas être réimporté par Rappel. Exporter plutôt sans eux ? Les paquets, les cartes et leur historique sont exportés ; les fichiers médias restent où ils sont, et les cartes gardent leurs références à ces fichiers."
+msgid "With its media files, the export would take at least {size}, more than the 2 GiB that Rappel reads from one file, so Rappel could not import it again."
+msgstr "Avec ses fichiers médias, l’export ferait au moins {size}, soit plus que les 2 Gio que Rappel lit dans un seul fichier : Rappel ne pourrait pas le réimporter."
+
+#. Translators: the start of a question's body. {count} is a number of media files (images, sounds), always very large.
+#: crates/app/src/transfer/text.rs
+msgid "The export would hold {count} media file, more files than Rappel reads from one export, so Rappel could not import it again."
+msgid_plural "The export would hold {count} media files, more files than Rappel reads from one export, so Rappel could not import it again."
+msgstr[0] "L’export contiendrait {count} fichier média, soit plus de fichiers que Rappel n’en lit dans un seul export : Rappel ne pourrait pas le réimporter."
+msgstr[1] "L’export contiendrait {count} fichiers médias, soit plus de fichiers que Rappel n’en lit dans un seul export : Rappel ne pourrait pas le réimporter."
+
+#. Translators: the start of a question's body. {size} is a size such as "2.4 GiB". An import reads at most 2 GiB from one file.
+#: crates/app/src/transfer/text.rs
+msgid "The export came to {size}, more than the 2 GiB that Rappel reads from one file, so Rappel could not import it again. It was not saved."
+msgstr "L’export a atteint {size}, soit plus que les 2 Gio que Rappel lit dans un seul fichier : Rappel ne pourrait pas le réimporter. Il n’a pas été enregistré."
+
+#. Translators: the end of the question's body, after why it is asked.
+#: crates/app/src/transfer/text.rs
+msgid "Export without the media instead? Decks, cards and their history are exported; the media files stay where they are, and cards keep their references to them."
+msgstr "Exporter plutôt sans les médias ? Les paquets, les cartes et leur historique sont exportés ; les fichiers médias restent où ils sont, et les cartes gardent leurs références à ces fichiers."
+
+#. Translators: a toast: what is before ":" is its title, the rest is behind Details. {size} is a size such as "2.4 GiB".
+#: crates/app/src/transfer/text.rs
+msgid "The export failed: even without its media it came to {size}, more than the 2 GiB that Rappel reads from one file. It was not saved."
+msgstr "L’export a échoué : même sans ses médias, il a atteint {size}, soit plus que les 2 Gio que Rappel lit dans un seul fichier. Il n’a pas été enregistré."
 
 #: crates/app/src/transfer/text.rs
 msgid "Early test version. This file was made by an early test version of Rappel and cannot be imported"
@@ -3287,6 +3309,9 @@ msgstr "Voyez combien vous avez étudié et ce que vous retenez"
 #: data/io.github.rsmirke.Rappel.metainfo.xml.in
 msgid "Pictures on cards, on a phone"
 msgstr "Des images sur les cartes, sur un téléphone"
+
+#~ msgid "The media files add up to {size}, more than the 2 GiB that Rappel reads from one file. An export with them could not be imported again by Rappel. Export without them instead? Decks, cards and their history are exported; the media files stay where they are, and cards keep their references to them."
+#~ msgstr "Les fichiers médias font {size} en tout, soit plus que les 2 Gio que Rappel lit dans un seul fichier. Un export qui les contiendrait ne pourrait pas être réimporté par Rappel. Exporter plutôt sans eux ? Les paquets, les cartes et leur historique sont exportés ; les fichiers médias restent où ils sont, et les cartes gardent leurs références à ces fichiers."
 
 #~ msgid "Save (Ctrl+Enter)"
 #~ msgstr "Enregistrer (Ctrl+Entrée)"

@@ -42,9 +42,9 @@ impl Store {
     ///
     /// # Errors
     /// Those of [`Self::export_to`], and [`Error::ExportTooLarge`] if the
-    /// file came out larger than an import reads (the media were counted
-    /// beforehand, [`Self::media_totals`], but not the text); then `path` is
-    /// left as it was.
+    /// file came out larger than an import reads (what
+    /// [`media_too_large_for_import`] cannot know beforehand: the size of
+    /// `cards.json`); then `path` is left as it was.
     pub fn export_to_with(&self, path: &Path, options: ExportOptions) -> Result<ExportSummary> {
         self.export_to_limited(path, options, MAX_ARCHIVE_BYTES)
     }
@@ -79,10 +79,9 @@ impl Store {
         })
     }
 
-    /// What an export would come to, for [`media_too_large_for_import`]:
-    /// the media files the database lists and their sizes together, and an
-    /// upper bound of the text of `cards.json`. Four cheap queries, no file
-    /// is touched.
+    /// The media an export would hold, for [`media_too_large_for_import`]:
+    /// how many files the database lists and their sizes together (the
+    /// `bytes` column). One cheap query; no file is touched.
     ///
     /// # Errors
     /// SQLite errors.
@@ -92,31 +91,9 @@ impl Store {
             [],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )?;
-        // The card text counts twice (JSON escapes: a quote, a newline, a
-        // non-ASCII letter written as \u escapes), every row 512 bytes
-        // (its keys and indentation in the pretty-printed file).
-        let (card_text, rows): (i64, i64) = self.conn.query_row(
-            "SELECT
-                (SELECT COALESCE(SUM(LENGTH(CAST(front_md AS BLOB))
-                                   + LENGTH(CAST(back_md AS BLOB))), 0) FROM cards),
-                (SELECT COUNT(*) FROM cards) + (SELECT COUNT(*) FROM decks)
-                + (SELECT COUNT(*) FROM tags) + (SELECT COUNT(*) FROM card_tags)
-                + (SELECT COUNT(*) FROM review_events)",
-            [],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )?;
-        let text = u64::try_from(card_text)
-            .unwrap_or(0)
-            .saturating_mul(2)
-            .saturating_add(
-                u64::try_from(rows)
-                    .unwrap_or(0)
-                    .saturating_mul(ROW_ESTIMATE),
-            );
         Ok(MediaTotals {
             bytes: u64::try_from(bytes).unwrap_or(0),
             files: usize::try_from(files).unwrap_or(0),
-            text_bytes: text,
         })
     }
 
@@ -420,59 +397,80 @@ fn partial_path(path: &Path) -> PathBuf {
     PathBuf::from(name)
 }
 
-/// What an export would come to.
+/// The media an export would hold (see [`Store::media_totals`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MediaTotals {
     /// The media files' sizes together, in bytes (the `bytes` column).
     pub bytes: u64,
     /// How many media files.
     pub files: usize,
-    /// An upper bound, in bytes, of `cards.json` without its media list
-    /// (see [`Store::media_totals`]).
-    pub text_bytes: u64,
 }
 
-/// What a row of `cards.json` is taken to weigh besides its card text.
-const ROW_ESTIMATE: u64 = 512;
+/// Why an export with its media could not be imported again
+/// ([`media_too_large_for_import`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MediaOverLimit {
+    /// The archive would take at least `at_least` bytes
+    /// ([`export_size_at_least`]), more than [`MAX_ARCHIVE_BYTES`].
+    Size {
+        /// The least the archive would take.
+        at_least: u64,
+    },
+    /// The archive would hold more entries than an import reads.
+    Files {
+        /// How many media files.
+        files: usize,
+    },
+}
 
-/// The most a zip entry takes besides its data in an archive Rappel writes:
-/// the local header (30 bytes) and the central record (46) with the name
-/// (`media/` + 64 hex digits + `.` + an extension of at most 4 letters = 75
-/// bytes) twice.
-const MEDIA_ENTRY_OVERHEAD: u64 = 30 + 46 + 2 * 75;
+/// The least a zip entry takes besides its data in an archive Rappel
+/// writes (no extra field, no comment, no data descriptor): the local
+/// header (30 bytes) and the central record (46) with the name twice. The
+/// shortest name is `media/` + 64 hex digits + `.` + a three-letter
+/// extension (`MediaKind::extension`) = 74 bytes.
+const MEDIA_ENTRY_OVERHEAD: u64 = 30 + 46 + 2 * 74;
 
-/// The bytes of an archive besides its media and `cards.json`: the
-/// directory entry `media/` (30 + 46 + 2 × 6) and `cards.json`'s headers
-/// (30 + 46 + 2 × 10), and the end record (22).
+/// The bytes of an archive besides its media and the data of
+/// `cards.json`: the directory entry `media/` (30 + 46 + 2 × 6),
+/// `cards.json`'s headers (30 + 46 + 2 × 10) and the end record (22).
 const ARCHIVE_OVERHEAD: u64 = (30 + 46 + 12) + (30 + 46 + 20) + 22;
 
-/// How big the archive of an export with media is taken to be: the media,
-/// their entries' headers, the archive's fixed ones, and the estimate of
-/// `cards.json`.
+/// The least the archive of an export with `media` takes: the media, their
+/// entries' headers and the archive's own, with `cards.json` taken as
+/// empty. A lower bound, so that what it refuses is refused rightly: the
+/// compressed size of `cards.json` cannot be known without writing it, and
+/// any upper bound of it is far above the real size (Deflate shrinks the
+/// repeated keys and ids many times), which would turn away exports that
+/// import fine (ADR 0071).
 #[must_use]
-pub fn export_size_estimate(media: MediaTotals) -> u64 {
+pub fn export_size_at_least(media: MediaTotals) -> u64 {
     let files = u64::try_from(media.files).unwrap_or(u64::MAX);
     media
         .bytes
         .saturating_add(files.saturating_mul(MEDIA_ENTRY_OVERHEAD))
         .saturating_add(ARCHIVE_OVERHEAD)
-        .saturating_add(media.text_bytes)
 }
 
-/// Whether an import would refuse an export with these media, for what
-/// leaving the media out can mend: [`export_size_estimate`] past
-/// [`MAX_ARCHIVE_BYTES`], or more entries than an import reads (the media
-/// files, `cards.json` and `media/`). The estimate of the text is an upper
-/// bound for ordinary text but not a proof (a file made only of characters
-/// that JSON writes as six-byte escapes could be bigger), so a `false` is
-/// not a promise: the export checks the file it wrote and fails with
-/// [`Error::ExportTooLarge`], and the app then asks the same question. A
-/// `cards.json` over 256 MiB is not mended by leaving the media out and is
-/// not checked here. The app asks before exporting (ADR 0071).
+/// Why an import would refuse an export with `media`, for what leaving the
+/// media out mends, or `None`: [`export_size_at_least`] past
+/// [`MAX_ARCHIVE_BYTES`], else more entries (the media files, `cards.json`
+/// and `media/`) than an import reads. Both are lower bounds, so a `Some`
+/// is always right for the media the database lists (a file missing from
+/// the media folder is left out of the export, which is then smaller).
+/// A `None` is not a promise: `cards.json` may push the file over, which
+/// the export finds once it has written it ([`Error::ExportTooLarge`]).
+/// The app asks before exporting (ADR 0071).
 #[must_use]
-pub fn media_too_large_for_import(media: MediaTotals) -> bool {
+pub fn media_too_large_for_import(media: MediaTotals) -> Option<MediaOverLimit> {
+    let at_least = export_size_at_least(media);
     let entries = u64::try_from(media.files)
         .unwrap_or(u64::MAX)
         .saturating_add(2);
-    export_size_estimate(media) > MAX_ARCHIVE_BYTES || entries > Limits::DEFAULT.entries
+    if at_least > MAX_ARCHIVE_BYTES {
+        Some(MediaOverLimit::Size { at_least })
+    } else if entries > Limits::DEFAULT.entries {
+        Some(MediaOverLimit::Files { files: media.files })
+    } else {
+        None
+    }
 }

@@ -120,21 +120,35 @@ impl SelectionHeader {
         }
     }
 
-    /// Shows the title that fits the header's width.
+    /// Shows the title that fits the header's width. A screen reader hears
+    /// the whole title however it is drawn: the accessible label goes on the
+    /// label that draws it, not on the `AdwWindowTitle`. That widget sets no
+    /// role of its own, so it has GTK's default, `GTK_ACCESSIBLE_ROLE_GENERIC`,
+    /// "a nameless container that has no semantic meaning of its own"
+    /// (Gtk-4.0.gir; checked in the test below): a label set on it is not
+    /// what Orca reads, which is the inner label's own name, its text ("30")
+    /// unless an accessible label is set on it (the ARIA name computation
+    /// GTK follows: `aria-label` before the content).
     fn show_title(&self) {
         use gtk::prelude::{AccessibleExtManual, Cast, WidgetExt};
         let imp = self.imp();
         let full = imp.full_title.borrow();
-        // A screen reader hears the whole title however it is drawn.
-        imp.title
-            .upcast_ref::<gtk::Widget>()
-            .update_property(&[gtk::accessible::Property::Label(&full)]);
         if imp.tight.get() {
             imp.title.set_title(&imp.tight_title.borrow());
             imp.title.set_tooltip_text(Some(&full));
         } else {
             imp.title.set_title(&full);
             imp.title.set_tooltip_text(None);
+        }
+        let label = [gtk::accessible::Property::Label(&full)];
+        match title_label(&imp.title) {
+            Some(inner) => inner.update_property(&label),
+            // Not found (a libadwaita that draws its title another way):
+            // the widget itself, the best there is.
+            None => imp
+                .title
+                .upcast_ref::<gtk::Widget>()
+                .update_property(&label),
         }
     }
 
@@ -152,6 +166,25 @@ impl SelectionHeader {
     pub fn cancel_button(&self) -> gtk::Button {
         self.imp().cancel_button.get()
     }
+}
+
+/// The label inside `title` that draws its title: the `GtkLabel` with the
+/// style class `title` (libadwaita's `adw-window-title.ui` has a `title` and
+/// a `subtitle` label; found by walking the children, as libadwaita gives
+/// no getter for it). `None` if there is none.
+fn title_label(title: &adw::WindowTitle) -> Option<gtk::Label> {
+    use gtk::prelude::{Cast, WidgetExt};
+    let mut todo: Vec<gtk::Widget> = title.first_child().into_iter().collect();
+    while let Some(widget) = todo.pop() {
+        if widget.has_css_class("title")
+            && let Some(label) = widget.downcast_ref::<gtk::Label>()
+        {
+            return Some(label.clone());
+        }
+        todo.extend(widget.first_child());
+        todo.extend(widget.next_sibling());
+    }
+    None
 }
 
 #[cfg(test)]
@@ -185,6 +218,29 @@ mod tests {
             header.set_tight(false);
             assert_eq!(header.title(), "3 Selected");
             assert_eq!(header.imp().title.tooltip_text(), None);
+        });
+    }
+
+    /// What a screen reader names is the inner label: `AdwWindowTitle` is a
+    /// generic, nameless container, and the label that draws the title is
+    /// found (where `show_title` puts the accessible label).
+    #[test]
+    fn the_accessible_label_goes_on_the_label_that_draws_the_title() {
+        use gtk::prelude::{AccessibleExt, Cast};
+        crate::testing::with_widgets(|| {
+            let header: SelectionHeader = glib::Object::new();
+            let title = header.imp().title.get();
+            assert_eq!(
+                title.upcast_ref::<gtk::Widget>().accessible_role(),
+                gtk::AccessibleRole::Generic
+            );
+            header.set_titles("30 Selected", "30");
+            header.set_tight(true);
+            let inner = title_label(&title).expect("AdwWindowTitle draws its title in a label");
+            assert_eq!(inner.label(), "30", "the label that draws the title");
+            assert_eq!(inner.accessible_role(), gtk::AccessibleRole::Label);
+            header.set_tight(false);
+            assert_eq!(inner.label(), "30 Selected");
         });
     }
 }
