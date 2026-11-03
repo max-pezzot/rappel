@@ -89,6 +89,13 @@ mod imp {
         pub card_list: TemplateChild<gtk::ListView>,
         #[template_child]
         pub empty_add_button: TemplateChild<gtk::Button>,
+        #[template_child]
+        pub deck_menu: TemplateChild<gio::MenuModel>,
+        /// The Deck Menu's section with the "Study Cards Tagged" submenu
+        /// of the deck's tags (ADR 0069), empty while no card has a tag.
+        pub tag_section: OnceCell<gio::Menu>,
+        /// What `tag_section` shows, so an unchanged list is left alone.
+        pub tag_menu: RefCell<Option<crate::widgets::card_row::text::DeckTagMenu>>,
         pub state: OnceCell<AppState>,
         pub deck: OnceCell<Deck>,
         /// The cards, oldest first.
@@ -181,6 +188,12 @@ mod imp {
                 &self.empty_status,
                 super::EMPTY_ICON,
             );
+            // After Statistics: the deck's tags to study (ADR 0069).
+            let section = gio::Menu::new();
+            if let Some(menu) = self.deck_menu.downcast_ref::<gio::Menu>() {
+                menu.insert_section(1, None, &section);
+            }
+            crate::ui::init_once(&self.tag_section, section);
             let page = self.obj();
             // Back from studying: what is left to study changed, and so
             // may which cards are new. The rows are refreshed before the
@@ -264,6 +277,7 @@ impl DeckPage {
             move |_, _, _, _| {
                 page.update_empty_state();
                 page.update_study();
+                page.update_tag_menu();
                 // Select follows whether there is a card; an emptied list
                 // ends selection mode.
                 page.selection().list_changed();
@@ -294,6 +308,7 @@ impl DeckPage {
         init_once(&imp.cards, store);
         page.update_empty_state();
         page.update_study();
+        page.update_tag_menu();
         page.update_can_move();
         page.selection().list_changed();
         Ok(page)
@@ -353,6 +368,45 @@ impl DeckPage {
         let narrow = imp.selection_narrow_on.get() || self.compact();
         imp.selection_header.set_compact(narrow);
         imp.selection_bar.set_compact(narrow);
+    }
+
+    /// Fills the Deck Menu's "Study Cards Tagged" submenu with the tags of
+    /// the deck's cards (`card_row::text::deck_tag_menu`), each studying
+    /// its tag (`deck.study-tag`); past the cap, the last entry opens All
+    /// Cards (`win.search`, filtered to this deck), where every tag is in
+    /// the filter. Run after every change to the list.
+    fn update_tag_menu(&self) {
+        let imp = self.imp();
+        let (Some(section), Some(store)) = (imp.tag_section.get(), imp.cards.get()) else {
+            return;
+        };
+        let items: Vec<CardObject> = (0..store.n_items())
+            .filter_map(|p| store.item(p).and_downcast::<CardObject>())
+            .collect();
+        let lists: Vec<_> = items.iter().map(CardObject::tag_list).collect();
+        let menu = card_row::text::deck_tag_menu(lists.iter().flat_map(|l| l.iter()));
+        drop(lists);
+        if *imp.tag_menu.borrow() == menu {
+            return;
+        }
+        section.remove_all();
+        if let Some(menu) = &menu {
+            let submenu = gio::Menu::new();
+            for (label, id) in &menu.items {
+                submenu.append_item(&gio::MenuItem::new(
+                    Some(label),
+                    Some(&gio::Action::print_detailed_name(
+                        "deck.study-tag",
+                        Some(&id.to_variant()),
+                    )),
+                ));
+            }
+            if let Some(more) = &menu.more {
+                submenu.append(Some(more), Some("win.search"));
+            }
+            section.append_submenu(Some(&menu.label), &submenu);
+        }
+        imp.tag_menu.replace(menu);
     }
 
     /// Enables the rows' Move to Deck… while another deck exists, and the
@@ -1811,6 +1865,46 @@ mod tests {
                 .collect();
             assert_eq!(listed, ids);
             window.destroy();
+        });
+    }
+
+    /// The Deck Menu lists the tags of the deck's cards in a "Study Cards
+    /// Tagged" submenu after Statistics, each studying its tag, and follows
+    /// the list: no tag, no submenu (ADR 0069).
+    #[test]
+    fn the_deck_menu_offers_to_study_the_decks_tags() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state, page, ids) = page_of(2);
+            let section = page.imp().tag_section.get().unwrap().clone();
+            let menu = page.imp().deck_menu.get();
+            assert_eq!(
+                menu.item_link(1, "section"),
+                Some(section.clone().upcast::<gio::MenuModel>())
+            );
+            assert_eq!(section.n_items(), 0, "no tag yet");
+            let deck = page.deck_id().unwrap();
+            let tagged = state
+                .add_card_with_tags(&deck, "q", "a", &["zeta".to_owned(), "alpha".to_owned()])
+                .unwrap();
+            page.show_saved(Saved::Added(tagged.clone()));
+            assert_eq!(section.n_items(), 1);
+            let submenu = section.item_link(0, "submenu").unwrap();
+            let entry = |i: i32, key: &str| {
+                submenu
+                    .item_attribute_value(i, key, Some(glib::VariantTy::STRING))
+                    .and_then(|v| v.get::<String>())
+                    .unwrap()
+            };
+            assert_eq!(submenu.n_items(), 2);
+            assert_eq!(entry(0, "label"), "\u{2068}alpha\u{2069}");
+            assert_eq!(entry(1, "label"), "\u{2068}zeta\u{2069}");
+            assert_eq!(entry(0, "action"), "deck.study-tag");
+            let alpha = tagged.tags.iter().find(|t| t.name == "alpha").unwrap();
+            assert_eq!(entry(0, "target"), alpha.id);
+            // The card goes: so does the submenu.
+            page.delete(&tagged.card.id);
+            assert_eq!(section.n_items(), 0);
+            assert_eq!(ids.len(), 2);
         });
     }
 

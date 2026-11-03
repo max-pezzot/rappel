@@ -695,9 +695,12 @@ impl BrowserPage {
         let button = &self.imp().study_tag_button;
         match self.filter_tag() {
             Some(tag) => {
-                button.set_tooltip_text(Some(&card_row::text::study_tag_label(&tag.name)));
+                // Every deck, whatever the deck filter shows (ADR 0069).
+                button.set_tooltip_text(Some(&card_row::text::study_tag_everywhere(
+                    &tag.name, false,
+                )));
                 button.update_property(&[gtk::accessible::Property::Label(
-                    &card_row::text::study_tag_spoken(&tag.name),
+                    &card_row::text::study_tag_everywhere(&tag.name, true),
                 )]);
                 button.set_visible(true);
             }
@@ -722,7 +725,12 @@ impl BrowserPage {
             move |saved| page.saved(&saved)
         );
         match ReviewPage::push_for_tag(self, state, tag_id, StartedFrom::AllCards, on_saved) {
-            Ok(()) => self.imp().studied.set(true),
+            // Only a session actually pushed changes what this page shows.
+            Ok(pushed) => {
+                if pushed {
+                    self.imp().studied.set(true);
+                }
+            }
             Err(err) => {
                 // Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
                 self.error_toast(&with_error(
@@ -1047,7 +1055,7 @@ mod tests {
             assert!(button.get_visible());
             assert_eq!(
                 button.tooltip_text().as_deref(),
-                Some("Study Cards Tagged “\u{2068}algebra\u{2069}”")
+                Some("Study Cards Tagged “\u{2068}algebra\u{2069}” in Every Deck")
             );
             imp.tag_filter.set_selected(0);
             assert!(!button.get_visible());

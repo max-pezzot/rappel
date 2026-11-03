@@ -1285,6 +1285,9 @@ const NOT_TOASTS: &[&str] = &[
     "Stop Selecting or Clear the Search",
     // A menu entry, and the tooltip of All Cards' Study button (ADR 0069).
     "Study Cards Tagged “{tag}”",
+    "Study Cards Tagged “{tag}” in Every Deck",
+    // The last entry of the Deck Menu's list of tags (ADR 0069).
+    "{count} More Tag in All Cards…",
     "Tags of selected cards",
     "The database could not be opened.",
     "The data folder could not be used.",

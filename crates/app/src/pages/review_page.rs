@@ -503,6 +503,8 @@ impl ReviewPage {
     /// session is already on top. The tag is read first: `TagNotFound` if
     /// it is not one (tags are never deleted, ADR 0029).
     ///
+    /// Returns whether a session was pushed.
+    ///
     /// # Errors
     /// If the tag or what to study cannot be read; nothing is pushed then.
     pub fn push_for_tag(
@@ -511,9 +513,9 @@ impl ReviewPage {
         tag_id: &str,
         from: StartedFrom,
         on_saved: impl Fn(Saved) + 'static,
-    ) -> rappel_core::Result<()> {
+    ) -> rappel_core::Result<bool> {
         let Some(view) = nav::navigation_view(from_page) else {
-            return Ok(());
+            return Ok(false);
         };
         nav::push_unless_on_top(&view, || {
             let tag = state
@@ -522,8 +524,40 @@ impl ReviewPage {
                 .find(|t| t.id == tag_id)
                 .ok_or_else(|| rappel_core::Error::TagNotFound(tag_id.to_owned()))?;
             Self::for_tag(state.clone(), tag, from, on_saved)
-        })?;
-        Ok(())
+        })
+    }
+
+    /// Deck `deck_id` was archived while this page is open: a tag's session
+    /// drops that deck's cards, as an archived deck is not studied (ADR
+    /// 0068, 0069), and the card on screen, if it is one of them, leaves
+    /// the session as a suspended card does (nothing is counted). A deck's
+    /// own session is left by the window instead.
+    pub fn leave_deck(&self, deck_id: &str) {
+        let imp = self.imp();
+        let (Some(state), Some(Studied::Tag { .. })) = (imp.state.get(), imp.studied.get()) else {
+            return;
+        };
+        let cards = match state.list_cards(deck_id) {
+            Ok(cards) => cards,
+            Err(err) => {
+                tracing::warn!("cannot read the cards of an archived deck: {err}");
+                return;
+            }
+        };
+        let current = imp.current.borrow().clone();
+        let mut leaves_screen = false;
+        if let Some(session) = imp.session.borrow_mut().as_mut() {
+            for card in &cards {
+                if current.as_deref() == Some(card.id.as_str()) {
+                    leaves_screen = true;
+                } else {
+                    session.skip(&card.id);
+                }
+            }
+        }
+        if leaves_screen && let Some(id) = current {
+            self.leave_session(&id);
+        }
     }
 
     fn start(
@@ -1390,12 +1424,15 @@ impl ReviewPage {
             // Nothing was there to study: the "all done" page.
             imp.summary_figures.set_visible(false);
             imp.summary_page.set_title(&nothing_to_study());
+            // The description is Pango markup (`AdwStatusPage:description`)
+            // and the text names a deck or a tag, which is untrusted.
             imp.summary_page
-                .set_description(Some(&studied.nothing_to_study()));
+                .set_description(Some(&glib::markup_escape_text(&studied.nothing_to_study())));
         } else {
             imp.summary_figures.set_visible(false);
             imp.summary_page.set_title(&session_complete());
-            imp.summary_page.set_description(Some(&nothing_reviewed()));
+            imp.summary_page
+                .set_description(Some(&glib::markup_escape_text(&nothing_reviewed())));
         }
         imp.window_title.set_subtitle("");
         self.set_controls(Controls::Hidden);
@@ -2920,6 +2957,97 @@ mod tests {
                 Some("No cards of “\u{2068}Spanish\u{2069}” are left to study now.")
             );
             assert_eq!(imp.done_button.label().as_deref(), Some("_Back to Deck"));
+        });
+    }
+
+    /// Every label text under `widget`, as drawn.
+    fn label_texts(widget: &gtk::Widget, out: &mut Vec<String>) {
+        if let Some(label) = widget.downcast_ref::<gtk::Label>() {
+            out.push(label.text().to_string());
+        }
+        let mut child = widget.first_child();
+        while let Some(c) = child {
+            label_texts(&c, out);
+            child = c.next_sibling();
+        }
+    }
+
+    /// A tag's name in the "all done" page's description, which is Pango
+    /// markup, is drawn as it is: escaped, never parsed.
+    #[test]
+    fn a_tag_name_in_the_all_done_page_is_not_markup() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state) = crate::testing::temporary_state();
+            let deck = state.create_deck("D").unwrap();
+            let card = state
+                .add_card_with_tags(&deck.id, "q", "a", &["a&b <i>".to_owned()])
+                .unwrap();
+            state.set_suspended(&[card.card.id], true).unwrap();
+            let tag = tag_named(&state, "a&b <i>");
+            let page =
+                ReviewPage::for_tag(state.clone(), tag, StartedFrom::AllCards, |_| {}).unwrap();
+            let mut texts = Vec::new();
+            label_texts(page.imp().summary_page.upcast_ref(), &mut texts);
+            assert!(
+                texts.contains(
+                    &"No cards tagged “\u{2068}a&b <i>\u{2069}” are left to study now.".to_owned()
+                ),
+                "{texts:?}"
+            );
+        });
+    }
+
+    /// Archiving a deck during a tag's session drops that deck's cards,
+    /// the one on screen too, which leaves as a suspended one does; the
+    /// other decks' cards stay (ADR 0068, 0069).
+    #[test]
+    fn a_deck_archived_during_a_tag_session_leaves_it() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state) = crate::testing::temporary_state();
+            let a = state.create_deck("A").unwrap();
+            let b = state.create_deck("B").unwrap();
+            let a_cards = [
+                due_card(&state, &a.id, "a1", &["t"]),
+                due_card(&state, &a.id, "a2", &["t"]),
+            ];
+            let b1 = due_card(&state, &b.id, "b1", &["t"]);
+            let page = ReviewPage::for_tag(
+                state.clone(),
+                tag_named(&state, "t"),
+                StartedFrom::AllCards,
+                |_| {},
+            )
+            .unwrap();
+            let on_screen = current(&page).unwrap();
+            let deck = state.card(&on_screen).unwrap().deck_id;
+            state.archive_deck(&deck).unwrap();
+            page.leave_deck(&deck);
+            let mut shown = Vec::new();
+            while let Some(id) = current(&page) {
+                assert!(shown.len() < 10, "the session does not end");
+                shown.push(id);
+                pass(&page);
+            }
+            let want: Vec<String> = if deck == a.id {
+                vec![b1]
+            } else {
+                a_cards.to_vec()
+            };
+            let mut shown_sorted = shown.clone();
+            shown_sorted.sort();
+            let mut want_sorted = want;
+            want_sorted.sort();
+            assert_eq!(shown_sorted, want_sorted);
+            // Nothing of the archived deck was answered.
+            assert_eq!(state.review_events(&on_screen).unwrap().len(), 2);
+            // A deck's own session is not changed by it.
+            let c = state.create_deck("C").unwrap();
+            due_card(&state, &c.id, "c1", &[]);
+            let deck_page = ReviewPage::new(state.clone(), c.clone(), |_| {}).unwrap();
+            let before = current(&deck_page);
+            assert!(before.is_some());
+            deck_page.leave_deck(&c.id);
+            assert_eq!(current(&deck_page), before);
         });
     }
 

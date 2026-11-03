@@ -121,10 +121,16 @@ fn each_deck_gives_at_most_what_is_left_of_its_own_limits() {
 fn a_card_studied_by_tag_uses_its_decks_limit_for_the_day() {
     let mut store = Store::in_memory();
     store.set_max_new_per_day(2).unwrap();
-    let (deck, cards) = deck_with(&mut store, "A", &[&["t"], &[], &["t"]]);
+    // More tagged new cards than the limit: a tag allowance that forgot
+    // what the deck did today would offer two of them below.
+    let (deck, cards) = deck_with(&mut store, "A", &[&["t"], &[], &["t"], &["t"], &["t"]]);
     assert_eq!(
         deck_input(&store, &deck).new,
         [cards[0].clone(), cards[1].clone()]
+    );
+    assert_eq!(
+        tag_input(&store, "t").new,
+        [cards[0].clone(), cards[2].clone()]
     );
     // A tag session introduces cards[0], written to the log as usual.
     answer(&mut store, &cards[0], Grade::Pass, NOW);
@@ -177,6 +183,39 @@ fn suspended_and_deleted_cards_are_left_out() {
     assert_eq!(input.new, [cards[3].clone()]);
     let tag = StudyScope::tag(tag_id(&store, "t"));
     assert_eq!(store.next_study_change(&tag, NOW).unwrap(), None);
+}
+
+/// The next change of a tag skips suspended and deleted cards, asked at a
+/// time before every card's due time, so each of them would be the answer
+/// if it counted.
+#[test]
+fn the_next_change_of_a_tag_leaves_out_suspended_and_deleted_cards() {
+    let mut store = Store::in_memory();
+    let (_, cards) = deck_with(&mut store, "A", &[&["t"], &["t"], &["t"]]);
+    // In their step: due 10 minutes after their answer, counted from
+    // 20 minutes before that.
+    answer(&mut store, &cards[0], Grade::Fail, NOW);
+    answer(&mut store, &cards[1], Grade::Fail, NOW + 1_000);
+    answer(&mut store, &cards[2], Grade::Fail, NOW + 2_000);
+    let tag = StudyScope::tag(tag_id(&store, "t"));
+    let before = NOW - DAY_MS;
+    let change = |at: i64| at + STEP_MS - EARLY_MS;
+    assert_eq!(
+        store.next_study_change(&tag, before).unwrap(),
+        Some(change(NOW))
+    );
+    store
+        .set_suspended(std::slice::from_ref(&cards[0]), true)
+        .unwrap();
+    assert_eq!(
+        store.next_study_change(&tag, before).unwrap(),
+        Some(change(NOW + 1_000))
+    );
+    store.delete_card_at(&cards[1], NOW).unwrap();
+    assert_eq!(
+        store.next_study_change(&tag, before).unwrap(),
+        Some(change(NOW + 2_000))
+    );
 }
 
 #[test]

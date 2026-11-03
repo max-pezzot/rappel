@@ -2982,10 +2982,22 @@ msgstr ""
 msgid "Study Cards Tagged “{tag}”"
 msgstr ""
 
-#. Translators: a submenu listing a card's tags; choosing one studies the cards that carry it, in every deck.
+#. Translators: All Cards' button that starts a study session over the cards that carry a tag, in every deck, whatever deck the filter shows; {tag} is the tag's name.
+#: crates/app/src/widgets/card_row/text.rs
+msgid "Study Cards Tagged “{tag}” in Every Deck"
+msgstr ""
+
+#. Translators: a submenu listing a card's or a deck's tags; choosing one studies the cards that carry it, in every deck.
 #: crates/app/src/widgets/card_row/text.rs
 msgid "Study Cards _Tagged"
 msgstr ""
+
+#. Translators: the last entry of the Deck Menu's list of tags when it is too long to show; it opens All Cards, whose tag filter lists every tag.
+#: crates/app/src/widgets/card_row/text.rs
+msgid "{count} More Tag in All Cards…"
+msgid_plural "{count} More Tags in All Cards…"
+msgstr[0] ""
+msgstr[1] ""
 
 #: crates/app/src/widgets/chart_card.rs
 msgid "Select a day to see its values"

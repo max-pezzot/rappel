@@ -519,6 +519,7 @@ impl RappelWindow {
     /// row now at the deck's place once shown (ADR 0068: an archived deck
     /// has no page).
     pub fn leave_archived_deck(&self, page: &DeckPage, state: &AppState, id: &str) {
+        self.deck_archived(id);
         let decks = &self.imp().decks_page;
         decks.focus_place_on_return(id);
         decks.show_archived_toast(state, id.to_owned());
@@ -548,6 +549,7 @@ impl RappelWindow {
             deck.as_deref() == Some(id)
         });
         state.archive_deck(id)?;
+        self.deck_archived(id);
         // Read while the row is still in the list: it leaves at the next
         // reload.
         decks.focus_place_on_return(id);
@@ -566,6 +568,17 @@ impl RappelWindow {
             page.focus_deck(id);
         }
         Ok(())
+    }
+
+    /// Deck `id` was just archived: an open tag session drops its cards
+    /// (`ReviewPage::leave_deck`, ADR 0069). A page of the deck itself
+    /// (its page, its own session) is left by the caller.
+    pub fn deck_archived(&self, id: &str) {
+        for page in self.pages() {
+            if let Some(review) = page.downcast_ref::<ReviewPage>() {
+                review.leave_deck(id);
+            }
+        }
     }
 
     /// Makes the deck list focus deck `id`'s row the next time it shows

@@ -358,6 +358,9 @@ impl DecksPage {
                 return;
             }
         };
+        if let Some(window) = self.root().and_downcast::<crate::window::RappelWindow>() {
+            window.deck_archived(&deck.id);
+        }
         self.reload_or_toast(Focus::Index(index));
         self.show_archived_toast(&state, deck.id);
     }

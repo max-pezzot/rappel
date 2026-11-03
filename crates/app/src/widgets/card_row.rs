@@ -230,15 +230,15 @@ impl CardRow {
     /// so it only sets texts and reuses the pills (`TagPills::set_tags`).
     pub fn bind(&self, item: &CardObject) {
         let card = item.card();
-        self.show(
-            item.front_preview(),
-            item.back_preview(),
-            &item.tags(),
-            &item.tag_list(),
-            card.suspended,
-            item.is_new(),
-            &card.id,
-        );
+        self.show(&RowParts {
+            front: item.front_preview(),
+            back: item.back_preview(),
+            pill_names: &item.tags(),
+            tags: &item.tag_list(),
+            suspended: card.suspended,
+            is_new: item.is_new(),
+            id: &card.id,
+        });
     }
 
     /// Shows an All Cards `item` in this row: the card, its deck and status,
@@ -249,15 +249,15 @@ impl CardRow {
         let imp = self.imp();
         {
             let row = item.row();
-            self.show(
-                item.front_preview(),
-                item.back_preview(),
-                &item.tags(),
-                &row.tags,
-                row.card.suspended,
-                row.is_new,
-                &row.card.id,
-            );
+            self.show(&RowParts {
+                front: item.front_preview(),
+                back: item.back_preview(),
+                pill_names: &item.tags(),
+                tags: &row.tags,
+                suspended: row.card.suspended,
+                is_new: row.is_new,
+                id: &row.card.id,
+            });
             let status = browser_text::status_text(row.status, rappel_core::time::now_ms());
             imp.caption_label
                 .set_label(&browser_text::caption(&row.deck_name, &status));
@@ -289,20 +289,16 @@ impl CardRow {
         self.update_selection();
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "the parts of one row, from either kind of item"
-    )]
-    fn show(
-        &self,
-        front: &str,
-        back: &str,
-        tags: &[String],
-        tag_list: &[Tag],
-        suspended: bool,
-        is_new: bool,
-        id: &str,
-    ) {
+    fn show(&self, parts: &RowParts<'_>) {
+        let &RowParts {
+            front,
+            back,
+            pill_names: tags,
+            tags: tag_list,
+            suspended,
+            is_new,
+            id,
+        } = parts;
         let imp = self.imp();
         imp.front_label.set_label(front);
         imp.back_label.set_label(back);
@@ -456,6 +452,24 @@ impl CardRow {
         };
         rows::forward_id(self, &format!("{group}.{name}"), &id);
     }
+}
+
+/// What a row shows of one card, from a deck page's `CardObject` or an All
+/// Cards `BrowseItem`.
+struct RowParts<'a> {
+    /// The front's one-line preview.
+    front: &'a str,
+    /// The back's one-line preview.
+    back: &'a str,
+    /// The tag names on one line each, as the item keeps them for the
+    /// pills (made once per item, not per bind).
+    pill_names: &'a [String],
+    /// The tags with their ids, for the menu's Study Cards Tagged entries.
+    tags: &'a [Tag],
+    suspended: bool,
+    is_new: bool,
+    /// The card's id.
+    id: &'a str,
 }
 
 /// A list factory of card rows, for the deck page's list and All Cards':
