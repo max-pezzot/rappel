@@ -2515,8 +2515,8 @@ msgstr ""
 
 #. Translators: the start of a question's body. {count} is a number of media files (images, sounds), always very large.
 #: crates/app/src/transfer/text.rs
-msgid "The export would hold {count} media file, more files than Rappel reads from one export, so Rappel could not import it again."
-msgid_plural "The export would hold {count} media files, more files than Rappel reads from one export, so Rappel could not import it again."
+msgid "The export would hold {count} media file, too many files for Rappel to read from one export, so Rappel could not import it again."
+msgid_plural "The export would hold {count} media files, too many files for Rappel to read from one export, so Rappel could not import it again."
 msgstr[0] ""
 msgstr[1] ""
 

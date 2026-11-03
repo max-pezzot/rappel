@@ -2517,10 +2517,10 @@ msgstr "Avec ses fichiers médias, l’export ferait au moins {size}, soit plus 
 
 #. Translators: the start of a question's body. {count} is a number of media files (images, sounds), always very large.
 #: crates/app/src/transfer/text.rs
-msgid "The export would hold {count} media file, more files than Rappel reads from one export, so Rappel could not import it again."
-msgid_plural "The export would hold {count} media files, more files than Rappel reads from one export, so Rappel could not import it again."
-msgstr[0] "L’export contiendrait {count} fichier média, soit plus de fichiers que Rappel n’en lit dans un seul export : Rappel ne pourrait pas le réimporter."
-msgstr[1] "L’export contiendrait {count} fichiers médias, soit plus de fichiers que Rappel n’en lit dans un seul export : Rappel ne pourrait pas le réimporter."
+msgid "The export would hold {count} media file, too many files for Rappel to read from one export, so Rappel could not import it again."
+msgid_plural "The export would hold {count} media files, too many files for Rappel to read from one export, so Rappel could not import it again."
+msgstr[0] "L’export contiendrait {count} fichier média, trop de fichiers pour que Rappel les lise dans un seul export : Rappel ne pourrait pas le réimporter."
+msgstr[1] "L’export contiendrait {count} fichiers médias, trop de fichiers pour que Rappel les lise dans un seul export : Rappel ne pourrait pas le réimporter."
 
 #. Translators: the start of a question's body. {size} is a size such as "2.4 GiB". An import reads at most 2 GiB from one file.
 #: crates/app/src/transfer/text.rs

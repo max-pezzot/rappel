@@ -131,9 +131,31 @@ impl From<MediaOverLimit> for OverLimit {
     }
 }
 
-/// A size in the user's units ("2.4 GiB").
+/// A size in the user's units ("2.4 GiB"), rounded to the nearest tenth
+/// as `g_format_size` does.
 fn size_text(bytes: u64) -> String {
     gtk::glib::format_size_full(bytes, gtk::glib::FormatSizeFlags::IEC_UNITS).to_string()
+}
+
+/// `bytes` rounded **down** to what [`size_text`] shows: `g_format_size`
+/// writes one decimal of the largest IEC unit not above the size (KiB,
+/// MiB, GiB…), rounded to the nearest, so 2.96 GiB would read "3.0 GiB".
+/// For an "at least" that must not overstate, this gives the least byte
+/// count whose text is the tenth at or below `bytes` ("2.9 GiB"). Under
+/// 1 KiB it writes the bytes themselves, which are kept.
+fn floor_to_shown(bytes: u64) -> u64 {
+    let mut unit: u128 = 1;
+    while unit * 1024 <= u128::from(bytes) {
+        unit *= 1024;
+    }
+    if unit == 1 {
+        return bytes;
+    }
+    let tenths = u128::from(bytes) * 10 / unit;
+    // The least whole byte count at or above `tenths` tenths of the unit:
+    // GLib then shows exactly that tenth.
+    let floored = (tenths * unit).div_ceil(10);
+    u64::try_from(floored).unwrap_or(bytes)
 }
 
 /// The body of "Export Without Media?": why an export with the media could
@@ -148,16 +170,17 @@ pub(super) fn without_media_body(why: OverLimit) -> String {
                 "With its media files, the export would take at least {size}, more than the \
                  2 GiB that Rappel reads from one file, so Rappel could not import it again.",
             ),
-            &[("size", &size_text(at_least))],
+            // Rounded down: "at least" must not say more than it knows.
+            &[("size", &size_text(floor_to_shown(at_least)))],
         ),
         OverLimit::Files { files } => fill(
             // Translators: the start of a question's body. {count} is a
             // number of media files (images, sounds), always very large.
             &ngettext(
-                "The export would hold {count} media file, more files than Rappel reads from \
-                 one export, so Rappel could not import it again.",
-                "The export would hold {count} media files, more files than Rappel reads from \
-                 one export, so Rappel could not import it again.",
+                "The export would hold {count} media file, too many files for Rappel to read \
+                 from one export, so Rappel could not import it again.",
+                "The export would hold {count} media files, too many files for Rappel to read \
+                 from one export, so Rappel could not import it again.",
                 files,
             ),
             &[("count", &group_digits(files))],
@@ -624,8 +647,8 @@ mod tests {
         assert_eq!(
             without_media_body(OverLimit::Files { files: 120_000 }),
             format!(
-                "The export would hold 120,000 media files, more files than Rappel reads from \
-                 one export, so Rappel could not import it again. {offer}"
+                "The export would hold 120,000 media files, too many files for Rappel to read \
+                 from one export, so Rappel could not import it again. {offer}"
             )
         );
         assert_eq!(
@@ -645,6 +668,38 @@ mod tests {
         assert_eq!(
             OverLimit::from(MediaOverLimit::Files { files: 7 }),
             OverLimit::Files { files: 7 }
+        );
+    }
+
+    /// "At least" is rounded down to the tenth shown, never up: just under
+    /// 3 GiB reads "2.9 GiB", not "3.0 GiB"; a size already on a tenth
+    /// keeps it.
+    #[test]
+    fn at_least_is_rounded_down_to_the_tenth_shown() {
+        const GIB: u64 = 1 << 30;
+        let shown = |bytes| size_text(floor_to_shown(bytes));
+        assert_eq!(size_text(3 * GIB - 1), "3.0\u{a0}GiB", "GLib rounds up");
+        assert_eq!(shown(3 * GIB - 1), "2.9\u{a0}GiB");
+        assert_eq!(shown(3 * GIB), "3.0\u{a0}GiB");
+        assert_eq!(shown(2 * GIB + 1), "2.0\u{a0}GiB");
+        // On a tenth exactly, and just under the next one.
+        let tenth = GIB / 10 + 1;
+        assert_eq!(shown(2 * GIB + 3 * tenth), "2.3\u{a0}GiB");
+        assert_eq!(shown(2 * GIB + 3 * tenth - 2), "2.2\u{a0}GiB");
+        // Never more than the size itself, and a whole tenth of a unit.
+        for bytes in [1_500, 999_999, 2 * GIB + 7, u64::MAX / 3] {
+            let floored = floor_to_shown(bytes);
+            assert!(floored <= bytes, "{bytes}");
+            assert_eq!(size_text(floored), shown(bytes));
+        }
+        // Under 1 KiB the bytes themselves.
+        assert_eq!(floor_to_shown(1_000), 1_000);
+        // The question uses it.
+        assert!(
+            without_media_body(OverLimit::Size {
+                at_least: 3 * GIB - 1
+            })
+            .contains("at least 2.9\u{a0}GiB")
         );
     }
 

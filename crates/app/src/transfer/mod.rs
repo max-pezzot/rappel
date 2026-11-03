@@ -66,7 +66,7 @@ pub async fn export(window: &RappelWindow, state: &AppState) {
         // The bound before writing leaves out the text: the file came out too
         // large. Not a failure to report: the question, then once more.
         if let Ok(Err(err)) = &result
-            && let Some(why) = offers_export_without_media(err, include_media)
+            && let Some(why) = offers_export_without_media(err, include_media, has_media(state))
         {
             match ask(window, why).await {
                 MediaChoice::Without => {
@@ -104,9 +104,10 @@ fn report(
             };
             window.add_toast(toast);
         }
-        // Even without media: nothing more to leave out, so not core's
-        // message, which is for the logs.
-        Ok(Err(Error::ExportTooLarge { bytes, .. })) if !include_media => {
+        // Without media, or with none to leave out: nothing more to leave
+        // out, so not core's message, which is for the logs. (With media
+        // to leave out, `export` asked instead and never gets here.)
+        Ok(Err(Error::ExportTooLarge { bytes, .. })) => {
             show_error(window, "an export", &too_large_without_media_text(bytes));
         }
         Ok(Err(err)) => show_error(
@@ -128,15 +129,26 @@ fn report(
 }
 
 /// Why an export that failed with `err` is offered again without media, if
-/// it is: it came out larger than an import reads, and it had media to
-/// leave out.
-fn offers_export_without_media(err: &Error, include_media: bool) -> Option<OverLimit> {
+/// it is: it came out larger than an import reads, it included the media,
+/// and there are media to leave out (`has_media`); else writing it again
+/// would only fail the same way, and the failure is reported.
+fn offers_export_without_media(
+    err: &Error,
+    include_media: bool,
+    has_media: bool,
+) -> Option<OverLimit> {
     match err {
-        Error::ExportTooLarge { bytes, .. } if include_media => {
+        Error::ExportTooLarge { bytes, .. } if include_media && has_media => {
             Some(OverLimit::Written { bytes: *bytes })
         }
         _ => None,
     }
+}
+
+/// Whether the database lists any media file. If they cannot be counted,
+/// taken as yes: the question is then asked, and Cancel stays possible.
+fn has_media(state: &AppState) -> bool {
+    state.media_totals().map_or(true, |totals| totals.files > 0)
 }
 
 /// What the export does about the media.
@@ -420,13 +432,15 @@ mod tests {
     fn only_a_too_large_export_with_media_is_offered_again_without() {
         let large = Error::ExportTooLarge { bytes: 5, limit: 4 };
         assert_eq!(
-            offers_export_without_media(&large, true),
+            offers_export_without_media(&large, true, true),
             Some(OverLimit::Written { bytes: 5 })
         );
         // Already without media: nothing more to leave out.
-        assert_eq!(offers_export_without_media(&large, false), None);
+        assert_eq!(offers_export_without_media(&large, false, true), None);
+        // No media at all: leaving them out would change nothing.
+        assert_eq!(offers_export_without_media(&large, true, false), None);
         assert_eq!(
-            offers_export_without_media(&Error::ImportCancelled, true),
+            offers_export_without_media(&Error::ImportCancelled, true, true),
             None
         );
     }
