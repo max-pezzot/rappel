@@ -282,7 +282,13 @@ fn a_suspended_card_is_not_studied_and_comes_back_unsuspended() {
     review_twice(&mut store, &due.id);
     let ids = [new.id.clone(), due.id.clone()];
     let studied = |store: &Store| {
-        let input = store.study_input(&deck, NOW, NOW - DAY_MS / 2).unwrap();
+        let input = store
+            .study_input(
+                &crate::scheduling::StudyScope::deck(&deck),
+                NOW,
+                NOW - DAY_MS / 2,
+            )
+            .unwrap();
         (input.new.len(), input.reviews.len())
     };
     assert_eq!(studied(&store), (1, 1));
@@ -295,7 +301,12 @@ fn a_suspended_card_is_not_studied_and_comes_back_unsuspended() {
     assert_eq!(store.set_suspended(&ids, true).unwrap(), ids);
     assert_eq!(studied(&store), (0, 0));
     assert_eq!(counts(&store), (0, 0));
-    assert_eq!(store.next_study_change(&deck, T0).unwrap(), None);
+    assert_eq!(
+        store
+            .next_study_change(&crate::scheduling::StudyScope::deck(&deck), T0)
+            .unwrap(),
+        None
+    );
     assert!(store.card_info(&due.id, NOW).unwrap().suspended);
     // Nothing else about the card changed.
     assert_eq!(store.card(&due.id).unwrap().updated_at, T0);

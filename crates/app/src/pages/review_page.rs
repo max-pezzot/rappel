@@ -1,5 +1,7 @@
-//! A study session of one deck: the front, then the back, then Fail or
-//! Pass; a summary at the end. Layout in `data/review_page.blp` (ADR 0014).
+//! A study session of one deck, or of the cards carrying a tag in every
+//! deck that is not archived ([`Studied`], ADR 0069): the front, then the
+//! back, then Fail or Pass; a summary at the end. Layout in
+//! `data/review_page.blp` (ADR 0014).
 //!
 //! The order of cards is the core's [`Session`]. Each answer is recorded
 //! at once with `record_review`, so leaving early loses nothing.
@@ -26,8 +28,8 @@ use adw::prelude::*;
 use adw::subclass::prelude::*;
 use gtk::glib;
 use rappel_core::content::{self, Document};
-use rappel_core::domain::{CardState, Deck, Grade};
-use rappel_core::scheduling::{Session, Summary, capped};
+use rappel_core::domain::{CardState, Deck, Grade, Tag};
+use rappel_core::scheduling::{Session, StudyScope, Summary, capped};
 
 use crate::dialogs::card_editor::{CardEditor, Saved};
 use crate::dialogs::{card_info, move_card};
@@ -36,7 +38,9 @@ use crate::render::{Images, audio_controls, back_shown, clear, fill, shown_part,
 use crate::state::AppState;
 use crate::ui::callback::Callback;
 use crate::ui::dialog;
-use crate::ui::text::{counted, duration_text, group_digits, whole_percent, with_error};
+use crate::ui::text::{
+    counted, duration_text, group_digits, isolate, one_line, whole_percent, with_error,
+};
 use crate::ui::tile::{Tile, set_tile};
 use crate::ui::toast::{info_toast, log_failure, show_error, show_toast_from, undo_toast};
 use crate::ui::undo::{self, UndoFailure};
@@ -54,10 +58,9 @@ mod imp {
     use adw::subclass::prelude::*;
     use gtk::glib;
     use rappel_core::content::Document;
-    use rappel_core::domain::Deck;
     use rappel_core::scheduling::Session;
 
-    use super::OnSaved;
+    use super::{OnSaved, Studied};
     use crate::state::AppState;
     use crate::ui::callback::Callback;
     use crate::ui::toast::ErrorSlot;
@@ -116,7 +119,11 @@ mod imp {
         #[template_child]
         pub done_button: TemplateChild<gtk::Button>,
         pub state: OnceCell<AppState>,
-        pub deck: OnceCell<Deck>,
+        /// What the session studies.
+        pub studied: OnceCell<Studied>,
+        /// Whether there was nothing to study when the session began: the
+        /// summary then says so instead of "Session Complete".
+        pub started_empty: Cell<bool>,
         pub session: RefCell<Option<Session>>,
         /// The card on screen.
         pub current: RefCell<Option<String>>,
@@ -453,9 +460,14 @@ fn suspend_allowed(shown_for: Option<Duration>) -> bool {
 }
 
 impl ReviewPage {
-    /// The id of the deck being studied.
+    /// The id of the deck being studied; `None` for a tag's session, which
+    /// is no deck's (the window never remembers it as the last deck, and
+    /// archiving a deck does not leave it).
     pub fn deck_id(&self) -> Option<String> {
-        self.imp().deck.get().map(|d| d.id.clone())
+        match self.imp().studied.get()? {
+            Studied::Deck(deck) => Some(deck.id.clone()),
+            Studied::Tag { .. } => None,
+        }
     }
 
     /// A session over what `deck` has to study now, showing its first card.
@@ -468,15 +480,69 @@ impl ReviewPage {
         deck: Deck,
         on_saved: impl Fn(Saved) + 'static,
     ) -> rappel_core::Result<Self> {
+        Self::start(state, Studied::Deck(deck), on_saved)
+    }
+
+    /// A session over the cards carrying `tag` in every deck that is not
+    /// archived, each deck within its own daily limits (ADR 0069), started
+    /// from `from`; otherwise as [`Self::new`].
+    ///
+    /// # Errors
+    /// If what to study cannot be read.
+    pub fn for_tag(
+        state: AppState,
+        tag: Tag,
+        from: StartedFrom,
+        on_saved: impl Fn(Saved) + 'static,
+    ) -> rappel_core::Result<Self> {
+        Self::start(state, Studied::Tag { tag, from }, on_saved)
+    }
+
+    /// Pushes a session over tag `tag_id` above the page that holds
+    /// `from_page` (a deck page or All Cards, as `from` says), unless a
+    /// session is already on top. The tag is read first: `TagNotFound` if
+    /// it is not one (tags are never deleted, ADR 0029).
+    ///
+    /// # Errors
+    /// If the tag or what to study cannot be read; nothing is pushed then.
+    pub fn push_for_tag(
+        from_page: &impl IsA<gtk::Widget>,
+        state: &AppState,
+        tag_id: &str,
+        from: StartedFrom,
+        on_saved: impl Fn(Saved) + 'static,
+    ) -> rappel_core::Result<()> {
+        let Some(view) = nav::navigation_view(from_page) else {
+            return Ok(());
+        };
+        nav::push_unless_on_top(&view, || {
+            let tag = state
+                .tags()?
+                .into_iter()
+                .find(|t| t.id == tag_id)
+                .ok_or_else(|| rappel_core::Error::TagNotFound(tag_id.to_owned()))?;
+            Self::for_tag(state.clone(), tag, from, on_saved)
+        })?;
+        Ok(())
+    }
+
+    fn start(
+        state: AppState,
+        studied: Studied,
+        on_saved: impl Fn(Saved) + 'static,
+    ) -> rappel_core::Result<Self> {
         let now = rappel_core::time::now_ms();
-        let input = state.study_input(&deck.id, now)?;
+        let input = state.study_input(&studied.scope(), now)?;
         let page: Self = glib::Object::new();
         let imp = page.imp();
-        // Deck names are untrusted; AdwWindowTitle shows plain text.
-        imp.window_title.set_title(&deck.name);
+        // Deck and tag names are untrusted; AdwWindowTitle shows plain
+        // text.
+        imp.window_title.set_title(&studied.title());
+        imp.done_button.set_label(&studied.done_label());
+        imp.started_empty.set(input.is_empty());
         imp.session.replace(Some(Session::new(input)));
         init_once(&imp.state, state);
-        init_once(&imp.deck, deck);
+        init_once(&imp.studied, studied);
         init_once(&imp.on_saved, Callback::new(Rc::new(on_saved)));
         page.show_next();
         Ok(page)
@@ -801,11 +867,7 @@ impl ReviewPage {
     /// Opens the card editor on the card on screen.
     fn edit(&self) {
         let imp = self.imp();
-        let (Some(state), Some(deck), Some(id)) = (
-            imp.state.get(),
-            imp.deck.get(),
-            imp.current.borrow().clone(),
-        ) else {
+        let (Some(state), Some(id)) = (imp.state.get(), imp.current.borrow().clone()) else {
             return;
         };
         if imp.editing.get() {
@@ -829,7 +891,9 @@ impl ReviewPage {
             self,
             &imp.editing,
             state.clone(),
-            &deck.id,
+            // The card's own deck: in a tag's session it is not one deck
+            // (Ctrl+Shift+Enter adds the next card there too).
+            &card.deck_id,
             Some(&card),
             glib::clone!(
                 #[weak(rename_to = page)]
@@ -1318,9 +1382,19 @@ impl ReviewPage {
             set_tile(&imp.passed_value, &imp.passed_caption, &passed);
             set_tile(&imp.time_value, &imp.time_caption, &time);
             imp.summary_figures.set_visible(true);
+            imp.summary_page.set_title(&session_complete());
             imp.summary_page.set_description(None);
+        } else if imp.started_empty.get()
+            && let Some(studied) = imp.studied.get()
+        {
+            // Nothing was there to study: the "all done" page.
+            imp.summary_figures.set_visible(false);
+            imp.summary_page.set_title(&nothing_to_study());
+            imp.summary_page
+                .set_description(Some(&studied.nothing_to_study()));
         } else {
             imp.summary_figures.set_visible(false);
+            imp.summary_page.set_title(&session_complete());
             imp.summary_page.set_description(Some(&nothing_reviewed()));
         }
         imp.window_title.set_subtitle("");
@@ -1422,6 +1496,97 @@ const SUMMARY_ICON: &str = "object-select-symbolic";
 /// suspended or deleted during the session).
 fn nothing_reviewed() -> String {
     gettext("No cards were reviewed")
+}
+
+/// The summary's title after a session. Keep it equal to `summary_page`
+/// in `review_page.blp`.
+fn session_complete() -> String {
+    gettext("Session Complete")
+}
+
+/// The summary's title when there was nothing to study at the start (the
+/// "all done" page).
+fn nothing_to_study() -> String {
+    // Translators: the title of the review page when a deck or a tag has
+    // no card to study now.
+    gettext("Nothing to Study")
+}
+
+/// Where a tag's session was started: its summary's button goes back
+/// there (the header's Back always does).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StartedFrom {
+    /// A deck's page (a card's tag in its menu).
+    DeckPage,
+    /// All Cards (its tag filter, or a card's tag in its menu).
+    AllCards,
+}
+
+/// What a session studies (ADR 0069).
+#[derive(Debug, Clone)]
+pub enum Studied {
+    /// One deck.
+    Deck(Deck),
+    /// The cards carrying `tag` in every deck that is not archived.
+    Tag {
+        tag: Tag,
+        /// Where the session was started.
+        from: StartedFrom,
+    },
+}
+
+impl Studied {
+    /// The core's scope of the session.
+    fn scope(&self) -> StudyScope {
+        match self {
+            Self::Deck(deck) => StudyScope::deck(&deck.id),
+            Self::Tag { tag, .. } => StudyScope::tag(&tag.id),
+        }
+    }
+
+    /// The page's title: the deck's name, or "Tagged “verbs”".
+    fn title(&self) -> String {
+        match self {
+            Self::Deck(deck) => deck.name.clone(),
+            // Translators: the title of the review page while studying the
+            // cards that carry a tag, in every deck; {tag} is its name.
+            Self::Tag { tag, .. } => i18n::fill(
+                &gettext("Tagged “{tag}”"),
+                &[("tag", &isolate(&one_line(&tag.name)))],
+            ),
+        }
+    }
+
+    /// The summary's button, which leaves the page.
+    fn done_label(&self) -> String {
+        match self {
+            Self::Deck(_)
+            | Self::Tag {
+                from: StartedFrom::DeckPage,
+                ..
+            } => gettext("_Back to Deck"),
+            Self::Tag {
+                from: StartedFrom::AllCards,
+                ..
+            } => gettext("_Back to All Cards"),
+        }
+    }
+
+    /// The "all done" page's text: there was nothing to study.
+    fn nothing_to_study(&self) -> String {
+        match self {
+            // Translators: under "Nothing to Study"; {deck} is a deck's name.
+            Self::Deck(deck) => i18n::fill(
+                &gettext("No cards of “{deck}” are left to study now."),
+                &[("deck", &isolate(&one_line(&deck.name)))],
+            ),
+            // Translators: under "Nothing to Study"; {tag} is a tag's name.
+            Self::Tag { tag, .. } => i18n::fill(
+                &gettext("No cards tagged “{tag}” are left to study now."),
+                &[("tag", &isolate(&one_line(&tag.name)))],
+            ),
+        }
+    }
 }
 
 /// The summary's three tiles: cards reviewed, pass rate and time, or
@@ -2651,6 +2816,119 @@ mod tests {
                 Some(nothing_reviewed().as_str())
             );
         });
+    }
+
+    /// Adds a card to `deck` with `tags`, learned long ago so it is due.
+    fn due_card(state: &AppState, deck: &str, front: &str, tags: &[&str]) -> String {
+        let tags: Vec<String> = tags.iter().map(|&t| t.to_owned()).collect();
+        let id = state
+            .add_card_with_tags(deck, front, "back", &tags)
+            .unwrap()
+            .card
+            .id;
+        let now = rappel_core::time::now_ms();
+        let day = crate::ui::time::DAY_MS;
+        for at in [now - 60 * day, now - 60 * day + 11 * 60 * 1000] {
+            state
+                .record_review(&id, Grade::Pass, Duration::ZERO, at)
+                .unwrap();
+        }
+        id
+    }
+
+    fn tag_named(state: &AppState, name: &str) -> Tag {
+        state
+            .tags()
+            .unwrap()
+            .into_iter()
+            .find(|t| t.name == name)
+            .unwrap()
+    }
+
+    /// A tag's session shows the tag in its title and studies its due
+    /// cards of every deck that is not archived, writing each answer to the
+    /// log like a deck's; it is no deck's session (ADR 0069).
+    #[test]
+    fn a_tag_session_studies_the_tagged_cards_of_every_active_deck() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state) = crate::testing::temporary_state();
+            let a = state.create_deck("A").unwrap();
+            let b = state.create_deck("B").unwrap();
+            let gone = state.create_deck("Gone").unwrap();
+            let a1 = due_card(&state, &a.id, "a1", &["verbs"]);
+            due_card(&state, &a.id, "a2", &["nouns"]);
+            let b1 = due_card(&state, &b.id, "b1", &["verbs", "x"]);
+            due_card(&state, &gone.id, "g1", &["verbs"]);
+            state.archive_deck(&gone.id).unwrap();
+            let tag = tag_named(&state, "verbs");
+            let page =
+                ReviewPage::for_tag(state.clone(), tag, StartedFrom::AllCards, |_| {}).unwrap();
+            let imp = page.imp();
+            assert_eq!(imp.window_title.title(), "Tagged “\u{2068}verbs\u{2069}”");
+            assert_eq!(page.deck_id(), None);
+            assert_eq!(
+                imp.done_button.label().as_deref(),
+                Some("_Back to All Cards")
+            );
+            let mut shown = Vec::new();
+            while let Some(id) = current(&page) {
+                assert!(shown.len() < 10, "the session does not end");
+                shown.push(id.clone());
+                pass(&page);
+                // Written as in a deck's session.
+                assert_eq!(state.review_events(&id).unwrap().len(), 3);
+            }
+            shown.sort();
+            let mut want = vec![a1, b1];
+            want.sort();
+            assert_eq!(shown, want);
+            assert_eq!(imp.summary_page.title(), "Session Complete");
+            assert!(imp.summary_figures.is_visible());
+        });
+    }
+
+    /// With nothing to study, a session opens on the "all done" page,
+    /// worded for its tag or deck, with the button back to where it began.
+    #[test]
+    fn a_session_with_nothing_to_study_says_so_for_its_tag_or_deck() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state) = crate::testing::temporary_state();
+            let deck = state.create_deck("Spanish").unwrap();
+            let gone = state.create_deck("Gone").unwrap();
+            due_card(&state, &gone.id, "g1", &["verbs"]);
+            state.archive_deck(&gone.id).unwrap();
+            let tag = tag_named(&state, "verbs");
+            let page =
+                ReviewPage::for_tag(state.clone(), tag, StartedFrom::DeckPage, |_| {}).unwrap();
+            let _window = in_window(&page);
+            let imp = page.imp();
+            assert_eq!(imp.stack.visible_child_name().as_deref(), Some("summary"));
+            assert!(!imp.summary_figures.is_visible());
+            assert_eq!(imp.summary_page.title(), "Nothing to Study");
+            assert_eq!(
+                imp.summary_page.description().as_deref(),
+                Some("No cards tagged “\u{2068}verbs\u{2069}” are left to study now.")
+            );
+            assert_eq!(imp.done_button.label().as_deref(), Some("_Back to Deck"));
+
+            let page = ReviewPage::new(state.clone(), deck, |_| {}).unwrap();
+            let _window = in_window(&page);
+            let imp = page.imp();
+            assert_eq!(imp.summary_page.title(), "Nothing to Study");
+            assert_eq!(
+                imp.summary_page.description().as_deref(),
+                Some("No cards of “\u{2068}Spanish\u{2069}” are left to study now.")
+            );
+            assert_eq!(imp.done_button.label().as_deref(), Some("_Back to Deck"));
+        });
+    }
+
+    #[test]
+    fn the_session_complete_title_matches_the_blueprint() {
+        assert!(
+            include_str!("../../data/review_page.blp")
+                .contains(&format!("title: _(\"{}\");", session_complete()))
+        );
     }
 
     /// The action each key's menu item runs, for the hints' test.

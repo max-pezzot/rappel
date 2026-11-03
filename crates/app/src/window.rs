@@ -923,6 +923,60 @@ mod tests {
         });
     }
 
+    /// A tag's session is no deck's (ADR 0069): closed during one started
+    /// from All Cards, the window reopens on the deck list; started from a
+    /// deck page, on that deck, as under a deck's session.
+    #[test]
+    fn a_tag_session_is_not_remembered_as_the_last_deck() {
+        crate::testing::with_widgets(|| {
+            let (window, page, _tmp) = reopened_with(1);
+            let imp = window.imp();
+            imp.navigation_view.set_animate_transitions(false);
+            let state = imp.state.get().unwrap().clone();
+            let deck = page.deck_id().unwrap();
+            let card = &state.list_tagged_cards(&deck).unwrap()[0].card.id;
+            state
+                .add_tags_to_cards(
+                    std::slice::from_ref(card),
+                    &["verbs".to_owned()],
+                    usize::MAX,
+                )
+                .unwrap();
+            let tag_id = state.tags().unwrap()[0].id.clone();
+            let saved = || {
+                window.save_state();
+                window_state::load(state.data_dir()).deck_id
+            };
+            // From the deck page: that deck is open under the session.
+            page.activate_action("deck.study-tag", Some(&tag_id.to_variant()))
+                .unwrap();
+            assert!(
+                imp.navigation_view
+                    .visible_page()
+                    .is_some_and(|p| p.is::<ReviewPage>())
+            );
+            assert_eq!(saved().as_deref(), Some(deck.as_str()));
+            // From All Cards opened on the deck list: no deck.
+            imp.navigation_view.pop_to_page(&*imp.decks_page);
+            WidgetExt::activate_action(&window, "win.search", None).unwrap();
+            let browser = imp
+                .navigation_view
+                .visible_page()
+                .and_downcast::<BrowserPage>()
+                .unwrap();
+            browser
+                .activate_action("browser.study-tag", Some(&tag_id.to_variant()))
+                .unwrap();
+            assert!(
+                imp.navigation_view
+                    .visible_page()
+                    .is_some_and(|p| p.is::<ReviewPage>())
+            );
+            assert_eq!(saved(), None);
+            window.destroy();
+        });
+    }
+
     /// A window closed on a deck that was then merged starts on the deck
     /// list: the merged deck is deleted, and reopening it does nothing.
     #[test]

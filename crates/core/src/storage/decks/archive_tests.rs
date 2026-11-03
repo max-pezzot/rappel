@@ -228,7 +228,9 @@ fn an_archived_deck_is_not_studied() {
         mut store, spanish, ..
     } = two();
     let now = T0 + 30 * DAY_MS;
-    let input = store.study_input(&spanish, now, now).unwrap();
+    let input = store
+        .study_input(&crate::scheduling::StudyScope::deck(&spanish), now, now)
+        .unwrap();
     assert_eq!(
         input.reviews.len() + input.steps.len() + input.new.len(),
         2,
@@ -237,12 +239,17 @@ fn an_archived_deck_is_not_studied() {
 
     store.archive_deck_at(&spanish, T0 + 50).unwrap();
     assert!(matches!(
-        store.study_input(&spanish, now, now),
+        store.study_input(&crate::scheduling::StudyScope::deck(&spanish), now, now),
         Err(Error::DeckArchived(id)) if id == spanish
     ));
 
     store.unarchive_deck(&spanish).unwrap();
-    assert_eq!(store.study_input(&spanish, now, now).unwrap(), input);
+    assert_eq!(
+        store
+            .study_input(&crate::scheduling::StudyScope::deck(&spanish), now, now)
+            .unwrap(),
+        input
+    );
 }
 
 /// The global forecast and retention leave an archived deck out; the

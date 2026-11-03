@@ -596,10 +596,12 @@ msgid "This card is long: only its start is shown. Edit it to see all of it."
 msgstr ""
 
 #: crates/app/data/review_page.blp
+#: crates/app/src/pages/review_page.rs
 msgid "Session Complete"
 msgstr ""
 
 #: crates/app/data/review_page.blp
+#: crates/app/src/pages/review_page.rs
 #: crates/app/src/pages/stats_page/text.rs
 msgid "_Back to Deck"
 msgstr ""
@@ -1385,6 +1387,12 @@ msgstr ""
 
 #. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
 #: crates/app/src/pages/browser_page.rs
+#: crates/app/src/pages/deck_page.rs
+msgid "The session could not start: {error}"
+msgstr ""
+
+#. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
+#: crates/app/src/pages/browser_page.rs
 msgid "The tags could not be read: {error}"
 msgstr ""
 
@@ -1475,11 +1483,6 @@ msgstr ""
 #. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
 #: crates/app/src/pages/deck_page.rs
 msgid "What to study could not be read: {error}"
-msgstr ""
-
-#. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
-#: crates/app/src/pages/deck_page.rs
-msgid "The session could not start: {error}"
 msgstr ""
 
 #. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
@@ -1717,6 +1720,30 @@ msgstr[1] ""
 
 #: crates/app/src/pages/review_page.rs
 msgid "No cards were reviewed"
+msgstr ""
+
+#. Translators: the title of the review page when a deck or a tag has no card to study now.
+#: crates/app/src/pages/review_page.rs
+msgid "Nothing to Study"
+msgstr ""
+
+#. Translators: the title of the review page while studying the cards that carry a tag, in every deck; {tag} is its name.
+#: crates/app/src/pages/review_page.rs
+msgid "Tagged “{tag}”"
+msgstr ""
+
+#: crates/app/src/pages/review_page.rs
+msgid "_Back to All Cards"
+msgstr ""
+
+#. Translators: under "Nothing to Study"; {deck} is a deck's name.
+#: crates/app/src/pages/review_page.rs
+msgid "No cards of “{deck}” are left to study now."
+msgstr ""
+
+#. Translators: under "Nothing to Study"; {tag} is a tag's name.
+#: crates/app/src/pages/review_page.rs
+msgid "No cards tagged “{tag}” are left to study now."
 msgstr ""
 
 #. Translators: the caption under the number of cards reviewed in a session's summary.
@@ -2948,6 +2975,16 @@ msgstr ""
 
 #: crates/app/src/widgets/card_row/text.rs
 msgid "suspended"
+msgstr ""
+
+#. Translators: starts a study session over the cards that carry a tag, in every deck; {tag} is the tag's name.
+#: crates/app/src/widgets/card_row/text.rs
+msgid "Study Cards Tagged “{tag}”"
+msgstr ""
+
+#. Translators: a submenu listing a card's tags; choosing one studies the cards that carry it, in every deck.
+#: crates/app/src/widgets/card_row/text.rs
+msgid "Study Cards _Tagged"
 msgstr ""
 
 #: crates/app/src/widgets/chart_card.rs

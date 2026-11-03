@@ -19,9 +19,9 @@ pub use decks_page::DecksPage;
 #[cfg(test)]
 pub(crate) use recovery_page::tests::interrupted as interrupted_restore_folder;
 pub use recovery_page::{Recovered, RecoveryPage};
-pub use review_page::ReviewPage;
 #[cfg(test)]
 pub(crate) use review_page::key_triggers as review_key_triggers;
+pub use review_page::{ReviewPage, StartedFrom};
 pub use setting_page::SettingPage;
 /// A data folder with damaged settings, for the window's tests.
 #[cfg(test)]

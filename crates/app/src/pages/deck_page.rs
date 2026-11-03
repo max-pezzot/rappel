@@ -22,12 +22,12 @@ use adw::subclass::prelude::*;
 use gtk::{gio, glib};
 use rappel_core::Error;
 use rappel_core::domain::{Card, CardState, Deck, TaggedCard};
-use rappel_core::scheduling::StudyInput;
+use rappel_core::scheduling::{StudyInput, StudyScope};
 
 use crate::dialogs::card_editor::{CardEditor, Saved};
 use crate::dialogs::{card_info, merge_deck, move_card};
 use crate::i18n::gettext;
-use crate::pages::{ReviewPage, StatsPage};
+use crate::pages::{ReviewPage, StartedFrom, StatsPage};
 use crate::state::AppState;
 use crate::ui::focus::{self, ShownFocus, index_after_removal};
 use crate::ui::selection::{CardSelection, Parts, SelectionPage};
@@ -156,6 +156,8 @@ mod imp {
             });
             rows::install_id_action(klass, "deck.reset-card", super::DeckPage::reset);
             rows::install_id_action(klass, "deck.card-info", super::DeckPage::card_info);
+            // A card's menu, with a tag's id (ADR 0069).
+            rows::install_id_action(klass, "deck.study-tag", super::DeckPage::study_tag);
             // A long press on a touch screen: start choosing with the card.
             rows::install_id_action(klass, "deck.select-card", |page, id| {
                 if let Some(selection) = page.imp().selection.get() {
@@ -434,12 +436,13 @@ impl DeckPage {
             return;
         };
         let now = rappel_core::time::now_ms();
-        match state.study_input(&deck.id, now) {
+        let scope = StudyScope::deck(&deck.id);
+        match state.study_input(&scope, now) {
             Ok(input) => {
                 imp.window_title.set_subtitle(&study_subtitle(&input));
                 self.action_set_enabled("deck.study", !input.is_empty());
                 match (
-                    state.next_study_change(&deck.id, now),
+                    state.next_study_change(&scope, now),
                     state.next_day_start(now),
                 ) {
                     (Ok(next), Ok(day)) => self.arm_study_timer(timer_delay_ms(now, next, day)),
@@ -498,6 +501,37 @@ impl DeckPage {
             Ok::<_, rappel_core::Error>(page)
         });
         if let Err(err) = pushed {
+            // Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
+            self.error_toast(&with_error(
+                &gettext("The session could not start: {error}"),
+                &err,
+            ));
+        }
+    }
+
+    /// Pushes a session over the cards carrying tag `tag_id` in every deck
+    /// that is not archived (a card's menu, ADR 0069). Its Back, and its
+    /// summary's Back to Deck, come back here; `shown` then reads the
+    /// counts again, which the session changed.
+    fn study_tag(&self, tag_id: &str) {
+        let Some(state) = self.imp().state.get() else {
+            return;
+        };
+        if self.selecting() {
+            return;
+        }
+        // Cards of this deck saved from the session's editor update this
+        // list (`show_saved` leaves out the other decks' cards).
+        let on_saved = glib::clone!(
+            #[weak(rename_to = deck_page)]
+            self,
+            move |saved| {
+                deck_page.show_saved(saved);
+            }
+        );
+        if let Err(err) =
+            ReviewPage::push_for_tag(self, state, tag_id, StartedFrom::DeckPage, on_saved)
+        {
             // Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
             self.error_toast(&with_error(
                 &gettext("The session could not start: {error}"),
@@ -634,10 +668,19 @@ impl DeckPage {
         }
     }
 
-    /// Puts a saved card into the list, wherever the save came from (the
-    /// review page's editor too). Returns its id.
+    /// Puts a saved card of this deck into the list, wherever the save came
+    /// from (the review page's editor too). Returns its id; `None` for a
+    /// card of another deck, which a tag's session edits too.
     fn show_saved(&self, saved: Saved) -> Option<String> {
-        let store = self.imp().cards.get()?;
+        let imp = self.imp();
+        let store = imp.cards.get()?;
+        // A tag's session edits cards of other decks too (ADR 0069).
+        let deck_id = match &saved {
+            Saved::Added(tagged) | Saved::Edited(tagged) => &tagged.card.deck_id,
+        };
+        if imp.deck.get().is_none_or(|deck| &deck.id != deck_id) {
+            return None;
+        }
         let tagged = match saved {
             Saved::Added(tagged) => {
                 // A card just added has no reviews.
@@ -1726,6 +1769,48 @@ mod tests {
             let added = state.add_card_with_tags(&deck, "q", "a", &[]).unwrap();
             page.show_saved(Saved::Added(added));
             assert!(page.item(1).unwrap().is_new());
+        });
+    }
+
+    /// A card's tag starts a session over that tag from this page (ADR
+    /// 0069); a save from it of another deck's card leaves this list alone.
+    #[test]
+    fn a_cards_tag_starts_a_session_over_it_and_other_decks_stay_out() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state, page, ids) = page_of(1);
+            let other = state.create_deck("Other").unwrap();
+            let tagged = state
+                .add_card_with_tags(&other.id, "elsewhere", "a", &["verbs".to_owned()])
+                .unwrap();
+            let view = adw::NavigationView::new();
+            let window = gtk::Window::builder().child(&view).build();
+            view.push(&page);
+            let tag = tagged.tags[0].id.clone();
+            page.activate_action("deck.study-tag", Some(&tag.to_variant()))
+                .unwrap();
+            let review = view
+                .visible_page()
+                .and_downcast::<ReviewPage>()
+                .expect("a session is pushed");
+            assert_eq!(review.deck_id(), None);
+            // An unknown tag starts nothing.
+            view.pop();
+            page.activate_action(
+                "deck.study-tag",
+                Some(&"01920000-0000-7000-8000-00000000dead".to_variant()),
+            )
+            .unwrap();
+            assert!(view.visible_page().and_downcast::<ReviewPage>().is_none());
+            // The other deck's card, saved from the session's editor.
+            let edited = state
+                .edit_card_with_tags(&tagged.card.id, "edited", "a", None)
+                .unwrap();
+            assert_eq!(page.show_saved(Saved::Edited(edited)), None);
+            let listed: Vec<String> = (0..page.imp().cards.get().unwrap().n_items())
+                .map(|p| page.item(p).unwrap().card().id.clone())
+                .collect();
+            assert_eq!(listed, ids);
+            window.destroy();
         });
     }
 

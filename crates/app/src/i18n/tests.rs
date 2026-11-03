@@ -1283,6 +1283,8 @@ const NOT_TOASTS: &[&str] = &[
     "Select or Deselect Card",
     "Start With an Empty Database?",
     "Stop Selecting or Clear the Search",
+    // A menu entry, and the tooltip of All Cards' Study button (ADR 0069).
+    "Study Cards Tagged “{tag}”",
     "Tags of selected cards",
     "The database could not be opened.",
     "The data folder could not be used.",
