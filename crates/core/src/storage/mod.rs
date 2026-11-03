@@ -8,6 +8,7 @@ mod cards;
 mod decks;
 mod merge;
 mod migrations;
+mod practice;
 mod restore;
 mod review;
 mod schedule;

@@ -390,7 +390,7 @@ fn today_counts_in(conn: &Connection, deck_id: &str, day_start: i64) -> Result<(
 
 /// [`Error::TagNotFound`] unless tag `tag_id` exists. Tags are never
 /// deleted (ADR 0029), so this fails only for an id that never was one.
-fn ensure_tag(conn: &Connection, tag_id: &str) -> Result<()> {
+pub(super) fn ensure_tag(conn: &Connection, tag_id: &str) -> Result<()> {
     conn.query_row("SELECT 1 FROM tags WHERE id = ?1", [tag_id], |_| Ok(()))
         .optional()?
         .ok_or_else(|| Error::TagNotFound(tag_id.to_owned()))
@@ -398,7 +398,7 @@ fn ensure_tag(conn: &Connection, tag_id: &str) -> Result<()> {
 
 /// The tables of a tag session's cards: `ct` (the card tags), `c` (the
 /// cards) and `d` (their decks), to be filtered by [`TAGGED_IN_SCOPE`].
-const TAGGED_FROM: &str = "card_tags ct
+pub(super) const TAGGED_FROM: &str = "card_tags ct
     JOIN cards c ON c.id = ct.card_id
     JOIN decks d ON d.id = c.deck_id";
 
@@ -406,7 +406,8 @@ const TAGGED_FROM: &str = "card_tags ct
 /// (ADR 0068: the tag scope leaves archived decks out), deleted and
 /// suspended cards included. Shared by the queries of a tag session, so
 /// they cannot disagree on its decks.
-const TAGGED_IN_SCOPE: &str = "ct.tag_id = ?1 AND d.deleted_at IS NULL AND d.archived_at IS NULL";
+pub(super) const TAGGED_IN_SCOPE: &str =
+    "ct.tag_id = ?1 AND d.deleted_at IS NULL AND d.archived_at IS NULL";
 
 /// [`Store::study_input`] of tag `tag_id`, inside the caller's read
 /// transaction: each deck that has a live card with the tag gives its

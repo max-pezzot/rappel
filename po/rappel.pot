@@ -340,6 +340,12 @@ msgid "Study"
 msgstr ""
 
 #: crates/app/data/deck_page.blp
+#: crates/app/data/deck_row.blp
+#: crates/app/data/review_page.blp
+msgid "_Practice"
+msgstr ""
+
+#: crates/app/data/deck_page.blp
 #: crates/app/data/decks_page.blp
 msgid "_Statistics"
 msgstr ""
@@ -591,6 +597,10 @@ msgid "Edit Card"
 msgstr ""
 
 #: crates/app/data/review_page.blp
+msgid "Practice — nothing is rescheduled"
+msgstr ""
+
+#: crates/app/data/review_page.blp
 #: crates/app/src/pages/review_page.rs
 msgid "This card is long: only its start is shown. Edit it to see all of it."
 msgstr ""
@@ -604,6 +614,10 @@ msgstr ""
 #: crates/app/src/pages/review_page.rs
 #: crates/app/src/pages/stats_page/text.rs
 msgid "_Back to Deck"
+msgstr ""
+
+#: crates/app/data/review_page.blp
+msgid "Go over the cards again without rescheduling them"
 msgstr ""
 
 #: crates/app/data/review_page.blp
@@ -1388,6 +1402,8 @@ msgstr ""
 #. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
 #: crates/app/src/pages/browser_page.rs
 #: crates/app/src/pages/deck_page.rs
+#: crates/app/src/pages/decks_page.rs
+#: crates/app/src/pages/review_page.rs
 msgid "The session could not start: {error}"
 msgstr ""
 
@@ -1680,6 +1696,11 @@ msgstr ""
 msgid "{name} ({key})"
 msgstr ""
 
+#: crates/app/src/pages/review_page.rs
+msgctxt "page title"
+msgid "Practice"
+msgstr ""
+
 #. Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
 #: crates/app/src/pages/review_page.rs
 msgid "A card could not be read and was skipped: {error}"
@@ -1727,13 +1748,26 @@ msgstr ""
 msgid "Nothing to Study"
 msgstr ""
 
-#. Translators: the title of the review page while studying the cards that carry a tag, in every deck; {tag} is its name.
 #: crates/app/src/pages/review_page.rs
-msgid "Tagged “{tag}”"
+msgid "_Back to All Cards"
 msgstr ""
 
 #: crates/app/src/pages/review_page.rs
-msgid "_Back to All Cards"
+#: crates/app/src/pages/stats_page/text.rs
+msgid "_Back to Decks"
+msgstr ""
+
+#: crates/app/src/pages/review_page.rs
+msgid "Practice Complete"
+msgstr ""
+
+#: crates/app/src/pages/review_page.rs
+msgid "Practice: nothing was rescheduled"
+msgstr ""
+
+#. Translators: the title of the review page while studying the cards that carry a tag, in every deck; {tag} is its name.
+#: crates/app/src/pages/review_page.rs
+msgid "Tagged “{tag}”"
 msgstr ""
 
 #. Translators: under "Nothing to Study"; {deck} is a deck's name.
@@ -1745,6 +1779,13 @@ msgstr ""
 #: crates/app/src/pages/review_page.rs
 msgid "No cards tagged “{tag}” are left to study now."
 msgstr ""
+
+#. Translators: the caption under the number of cards practised in a practice's summary (nothing was rescheduled).
+#: crates/app/src/pages/review_page.rs
+msgid "Card practised"
+msgid_plural "Cards practised"
+msgstr[0] ""
+msgstr[1] ""
 
 #. Translators: the caption under the number of cards reviewed in a session's summary.
 #: crates/app/src/pages/review_page.rs
@@ -1783,10 +1824,6 @@ msgstr ""
 
 #: crates/app/src/pages/stats_page/text.rs
 msgid "Due Forecast"
-msgstr ""
-
-#: crates/app/src/pages/stats_page/text.rs
-msgid "_Back to Decks"
 msgstr ""
 
 #: crates/app/src/pages/stats_page/text.rs

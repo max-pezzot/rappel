@@ -1,11 +1,13 @@
 //! One deck in the deck list: name, what it has to study (or when it next
-//! will, `text`) and a menu with Rename, Merge Into…, Archive and Delete.
-//! Layout in `data/deck_row.blp` (ADR 0041, 0066, 0068).
+//! will, `text`) and a menu with Practice, then Rename, Merge Into…,
+//! Archive and Delete. Layout in `data/deck_row.blp` (ADR 0041, 0066,
+//! 0068, 0070).
 //!
-//! The menu items activate the row's own `row.rename` / `row.merge` /
-//! `row.archive` / `row.delete` actions, which forward to the page's
-//! `decks.rename` / `decks.merge` / `decks.archive` / `decks.delete` with
-//! this row's deck id (see `ui::rows`).
+//! The menu items activate the row's own `row.practice` / `row.rename` /
+//! `row.merge` / `row.archive` / `row.delete` actions, which forward to the
+//! page's `decks.practice` / `decks.rename` / `decks.merge` /
+//! `decks.archive` / `decks.delete` with this row's deck id (see
+//! `ui::rows`).
 
 use adw::prelude::*;
 use adw::subclass::prelude::*;
@@ -38,6 +40,8 @@ mod imp {
         pub deck_id: RefCell<String>,
         /// Merge Into… is enabled (`set_can_merge`).
         pub can_merge: Cell<bool>,
+        /// Practice is enabled (`practice_offered`).
+        pub can_practise: Cell<bool>,
         /// The accessible label last set, "Scratch, 12 due, 5 new".
         pub accessible_label: RefCell<String>,
     }
@@ -50,6 +54,9 @@ mod imp {
 
         fn class_init(klass: &mut Self::Class) {
             klass.bind_template();
+            klass.install_action("row.practice", None, |row, _, _| {
+                row.forward("decks.practice");
+            });
             klass.install_action("row.rename", None, |row, _, _| {
                 row.forward("decks.rename");
             });
@@ -99,6 +106,12 @@ impl DeckRow {
         imp.name_label.set_label(name);
         set_part(&imp.due_label, line.due.as_deref());
         set_part(&imp.other_label, line.other.as_deref());
+        // Every live card that is not suspended can be practised (ADR 0070).
+        let practisable = summary.card_count.saturating_sub(summary.suspended_count);
+        let can =
+            crate::pages::practice_offered(usize::try_from(practisable).unwrap_or(usize::MAX));
+        imp.can_practise.set(can);
+        self.action_set_enabled("row.practice", can);
         imp.separator_label.set_visible(line.has_separator());
         // The row is read as one: "Scratch, 12 due, 5 new" (the "·" and the
         // units in words).
@@ -126,6 +139,12 @@ impl DeckRow {
         self.imp().can_merge.get()
     }
 
+    /// Whether Practice is enabled in the row's menu.
+    #[cfg(test)]
+    pub fn can_practise(&self) -> bool {
+        self.imp().can_practise.get()
+    }
+
     /// The id of the deck this row shows.
     pub fn deck_id(&self) -> String {
         self.imp().deck_id.borrow().clone()
@@ -140,4 +159,33 @@ impl DeckRow {
 fn set_part(label: &gtk::Label, text: Option<&str>) {
     label.set_label(text.unwrap_or_default());
     label.set_visible(text.is_some());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Practice in a row's menu is offered while the deck has a live card
+    /// that is not suspended (ADR 0070).
+    #[test]
+    fn practice_is_offered_while_the_deck_has_a_card_to_practise() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state) = crate::testing::temporary_state();
+            let deck = state.create_deck("Spanish").unwrap();
+            let now = rappel_core::time::now_ms();
+            let row = |state: &crate::state::AppState| {
+                let decks = state.list_decks(now).unwrap();
+                DeckRow::new(&decks[0], now, now + 1)
+            };
+            assert!(!row(&state).can_practise());
+            let card = state
+                .add_card_with_tags(&deck.id, "q", "a", &[])
+                .unwrap()
+                .card
+                .id;
+            assert!(row(&state).can_practise());
+            state.set_suspended(&[card], true).unwrap();
+            assert!(!row(&state).can_practise());
+        });
+    }
 }

@@ -1276,6 +1276,8 @@ const NOT_TOASTS: &[&str] = &[
     "Nothing due in the next 14 days",
     "On a tag’s remove button",
     "Pass rate, last 30 days",
+    // The review page's banner during a practice (ADR 0070).
+    "Practice — nothing is rescheduled",
     "Reset progress of selected cards",
     "Restore Copy Cannot Be Used",
     "Save and Add Another",

@@ -27,7 +27,7 @@ use rappel_core::scheduling::{StudyInput, StudyScope};
 use crate::dialogs::card_editor::{CardEditor, Saved};
 use crate::dialogs::{card_info, merge_deck, move_card};
 use crate::i18n::gettext;
-use crate::pages::{ReviewPage, StartedFrom, StatsPage};
+use crate::pages::{ReviewPage, StartedFrom, StatsPage, Studied, practice_offered};
 use crate::state::AppState;
 use crate::ui::focus::{self, ShownFocus, index_after_removal};
 use crate::ui::selection::{CardSelection, Parts, SelectionPage};
@@ -146,6 +146,9 @@ mod imp {
             });
             klass.install_action("deck.study", None, |page, _, _| {
                 page.study();
+            });
+            klass.install_action("deck.practice", None, |page, _, _| {
+                page.practise();
             });
             klass.install_action("deck.statistics", None, |page, _, _| {
                 page.show_statistics();
@@ -518,6 +521,15 @@ impl DeckPage {
             Ok(input) => {
                 imp.window_title.set_subtitle(&study_subtitle(&input));
                 self.action_set_enabled("deck.study", !input.is_empty());
+                // Practice goes over every card, due or not (ADR 0070).
+                let practisable = state.practice_queue(&scope, now).map_or_else(
+                    |err| {
+                        tracing::warn!("cannot read what to practise: {err}");
+                        0
+                    },
+                    |queue| queue.len(),
+                );
+                self.action_set_enabled("deck.practice", practice_offered(practisable));
                 match (
                     state.next_study_change(&scope, now),
                     state.next_day_start(now),
@@ -533,6 +545,7 @@ impl DeckPage {
             Err(err) => {
                 imp.window_title.set_subtitle("");
                 self.action_set_enabled("deck.study", false);
+                self.action_set_enabled("deck.practice", false);
                 // Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
                 self.error_toast(&with_error(
                     &gettext("What to study could not be read: {error}"),
@@ -578,6 +591,43 @@ impl DeckPage {
             Ok::<_, rappel_core::Error>(page)
         });
         if let Err(err) = pushed {
+            // Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
+            self.error_toast(&with_error(
+                &gettext("The session could not start: {error}"),
+                &err,
+            ));
+        }
+    }
+
+    /// Practice from the Deck Menu: pushes a practice of this deck, which
+    /// writes nothing (ADR 0070). Its Back and its summary's Back to Deck
+    /// come back here.
+    fn practise(&self) {
+        let imp = self.imp();
+        let (Some(state), Some(deck)) = (imp.state.get(), imp.deck.get()) else {
+            return;
+        };
+        if self.selecting() {
+            return;
+        }
+        let Some(view) = nav::navigation_view(self) else {
+            return;
+        };
+        // Cards edited during the practice update this list too.
+        let on_saved = glib::clone!(
+            #[weak(rename_to = deck_page)]
+            self,
+            move |saved| {
+                deck_page.show_saved(saved);
+            }
+        );
+        let studied = Studied::Deck {
+            deck: deck.clone(),
+            from: StartedFrom::DeckPage,
+        };
+        if let Err(err) = nav::push_unless_on_top(&view, || {
+            ReviewPage::practice(state.clone(), studied, on_saved)
+        }) {
             // Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
             self.error_toast(&with_error(
                 &gettext("The session could not start: {error}"),
@@ -2371,6 +2421,57 @@ mod tests {
                 gtk::prelude::GtkWindowExt::focus(&window),
                 Some(top_button.upcast())
             );
+            window.destroy();
+        });
+    }
+
+    /// Whether the Deck Menu's item `text` can be pressed, as drawn in its
+    /// open popover.
+    fn deck_menu_item_sensitive(page: &DeckPage, text: &str) -> bool {
+        let button = &page.imp().deck_menu_button;
+        button.popup();
+        let mut todo = vec![
+            button
+                .popover()
+                .expect("the menu is open")
+                .upcast::<gtk::Widget>(),
+        ];
+        let mut found = None;
+        while let Some(widget) = todo.pop() {
+            if widget.type_().name() == "GtkModelButton"
+                && widget.property::<Option<String>>("text").as_deref() == Some(text)
+            {
+                found = Some(widget.is_sensitive());
+            }
+            let mut child = widget.first_child();
+            while let Some(c) = child {
+                child = c.next_sibling();
+                todo.push(c);
+            }
+        }
+        button.popdown();
+        found.unwrap_or_else(|| panic!("the Deck Menu has {text}"))
+    }
+
+    /// Practice in the Deck Menu is offered while the deck has a card to
+    /// practise, due or not, and pushes a practice of the deck (ADR 0070).
+    #[test]
+    fn the_deck_menu_offers_practice_while_a_card_can_be_practised() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state, page, ids) = page_of(1);
+            let view = adw::NavigationView::new();
+            let window = adw::Window::builder().content(&view).build();
+            view.push(&page);
+            window.present();
+            assert!(deck_menu_item_sensitive(&page, "Practice"));
+            page.activate_action("deck.practice", None).unwrap();
+            let practice = view.visible_page().and_downcast::<ReviewPage>().unwrap();
+            assert!(practice.is_practice());
+            view.pop();
+            // Suspended, the only card cannot be practised.
+            state.set_suspended(&ids, true).unwrap();
+            page.update_study();
+            assert!(!deck_menu_item_sensitive(&page, "Practice"));
             window.destroy();
         });
     }
