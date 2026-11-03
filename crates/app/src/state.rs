@@ -486,6 +486,26 @@ impl AppState {
         store.study_input(scope, now, local_day_start_ms(now, hour))
     }
 
+    /// The cards a practice of `scope` goes over at `now`, in order (see
+    /// [`Store::practice_queue`]). A shared borrow of the store: practice
+    /// reads and never writes (ADR 0070).
+    pub fn practice_queue(&self, scope: &StudyScope, now: i64) -> rappel_core::Result<Vec<String>> {
+        self.0.store.borrow().practice_queue(scope, now)
+    }
+
+    /// The store's [`Store::total_changes`], for tests that check that a
+    /// practice wrote nothing.
+    #[cfg(test)]
+    pub fn total_changes(&self) -> u64 {
+        self.0.store.borrow().total_changes()
+    }
+
+    /// Whether a practice of `scope` would show a card (see
+    /// [`Store::has_practisable`]); a shared borrow, as `practice_queue`.
+    pub fn has_practisable(&self, scope: &StudyScope) -> rappel_core::Result<bool> {
+        self.0.store.borrow().has_practisable(scope)
+    }
+
     /// When the next study day begins after `now`, UTC milliseconds (the
     /// day start hour of the settings, local time).
     pub fn next_day_start(&self, now: i64) -> rappel_core::Result<i64> {

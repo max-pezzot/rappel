@@ -1,9 +1,10 @@
 using Gtk 4.0;
 using Adw 1;
 
-// A study session of one deck. Texts are set in pages/review_page.rs; the
-// front and back boxes are filled by render/ (ADR 0019), which escapes the
-// untrusted card content.
+// A study session of a deck or a tag, or a practice of one (ADR 0070: the
+// banner shows, nothing is written). Texts are set in pages/review_page.rs;
+// the front and back boxes are filled by render/ (ADR 0019), which escapes
+// the untrusted card content.
 template $RappelReviewPage: Adw.NavigationPage {
   title: C_("page title", "Study");
 
@@ -79,6 +80,16 @@ template $RappelReviewPage: Adw.NavigationPage {
             label: _("Edit Card");
           }
         }
+      }
+
+      // Only in a practice: what makes it unmistakable that the answers
+      // schedule nothing. A banner, as the HIG has for a persistent state
+      // of the view; no button, since there is nothing to do about it.
+      [top]
+      Adw.Banner banner {
+        title: _("Practice — nothing is rescheduled");
+        // The title is plain text (AdwBanner:use-markup defaults to true).
+        use-markup: false;
       }
 
       // No transitions (AdwViewStack's default): the card and the summary
@@ -254,7 +265,9 @@ template $RappelReviewPage: Adw.NavigationPage {
                     }
                   }
 
-                  Gtk.Box {
+                  // Not in a practice's summary, which gives the cards
+                  // practised and the pass rate (ADR 0070).
+                  Gtk.Box time_tile {
                     orientation: vertical;
                     spacing: 2;
 
@@ -291,16 +304,38 @@ template $RappelReviewPage: Adw.NavigationPage {
                 };
               }
 
-              Gtk.Button done_button {
-                label: _("_Back to Deck");
-                use-underline: true;
-                action-name: "review.done";
-                halign: center;
+              // Back, and beside it Practice (secondary, after a session
+              // only, `practice_button_shown`; ADR 0070). A wrap box puts
+              // Practice under Back when a line cannot hold both (a phone
+              // with a long translation), so neither is ever cut; it is a
+              // group for screen readers (AdwWrapBox docs).
+              Adw.WrapBox {
+                child-spacing: 12;
+                line-spacing: 12;
+                align: 0.5;
 
-                styles [
-                  "pill",
-                  "suggested-action",
-                ]
+                Gtk.Button done_button {
+                  label: _("_Back to Deck");
+                  use-underline: true;
+                  action-name: "review.done";
+
+                  styles [
+                    "pill",
+                    "suggested-action",
+                  ]
+                }
+
+                Gtk.Button practice_button {
+                  visible: false;
+                  label: _("_Practice");
+                  use-underline: true;
+                  action-name: "review.practice";
+                  tooltip-text: _("Go over the cards again without rescheduling them");
+
+                  styles [
+                    "pill",
+                  ]
+                }
               }
             };
           };

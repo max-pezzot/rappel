@@ -448,6 +448,40 @@ fn bulk_writes_on_five_thousand_cards_are_fast() {
     }
 }
 
+/// Practice of a deck of 10,000 cards, 4,000 of them reviewed: the queue
+/// reads every card and orders them by retrievability in Rust, and
+/// `has_practisable` is one `EXISTS` (ADR 0070).
+#[test]
+fn practising_ten_thousand_cards_is_fast() {
+    let (mut store, deck) = scratch_store();
+    // A second scratch deck's worth in the same deck: 10,000 cards.
+    for i in CARDS..2 * CARDS {
+        let card = store
+            .add_card_at(&deck, &format!("Card {i}"), "back", T0)
+            .unwrap()
+            .id;
+        if i < CARDS + DUE {
+            let learned = NOW - 30 * DAY_MS;
+            for (grade, at) in [(Grade::Pass, learned), (Grade::Pass, learned + STEP_MS)] {
+                store
+                    .record_review(&card, grade, Duration::from_secs(8), at)
+                    .unwrap();
+            }
+        }
+    }
+    let scope = crate::scheduling::StudyScope::deck(&deck);
+    let (queue, cards) = fastest("practice_queue (10,000)", 3, || {
+        store.practice_queue(&scope, NOW).unwrap()
+    });
+    assert_eq!(cards.len(), crate::scheduling::PRACTICE_LIMIT);
+    let (exists, any) = fastest("has_practisable (10,000)", 3, || {
+        store.has_practisable(&scope).unwrap()
+    });
+    assert!(any);
+    assert_cpu_within(queue, ms(PRACTICE_MS), "practice_queue (10,000)");
+    assert_cpu_within(exists, ms(PRACTICE_MS), "has_practisable (10,000)");
+}
+
 /// Merge Into… on a deck of 10,000 cards, a tenth of them deleted, and its
 /// Undo: one statement each for the cards (ADR 0066), so well under a
 /// second even in a debug build.
@@ -709,6 +743,9 @@ fn rebuilding_the_search_index_of_five_thousand_cards_is_fast() {
     assert_cpu_within(t, ms(REBUILD_INDEX_MS), "rebuild_search_index");
 }
 
+/// `practice_queue` of 10,000 cards, 4,000 of them reviewed (measured
+/// 14 ms), and `has_practisable`, one `EXISTS` (under 1 ms), ADR 0070.
+const PRACTICE_MS: u64 = 150;
 /// `study_input` + `next_study_change`, and `list_decks`, each. Measured
 /// side by side on one loaded machine (debug build): `study_input` 27 ms,
 /// `next_study_change` 3 ms, `list_decks` 28 ms. `list_decks` counts

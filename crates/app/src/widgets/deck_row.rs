@@ -1,11 +1,13 @@
 //! One deck in the deck list: name, what it has to study (or when it next
-//! will, `text`) and a menu with Rename, Merge Into…, Archive and Delete.
-//! Layout in `data/deck_row.blp` (ADR 0041, 0066, 0068).
+//! will, `text`) and a menu with Practice, then Rename, Merge Into…,
+//! Archive and Delete. Layout in `data/deck_row.blp` (ADR 0041, 0066,
+//! 0068, 0070).
 //!
-//! The menu items activate the row's own `row.rename` / `row.merge` /
-//! `row.archive` / `row.delete` actions, which forward to the page's
-//! `decks.rename` / `decks.merge` / `decks.archive` / `decks.delete` with
-//! this row's deck id (see `ui::rows`).
+//! The menu items activate the row's own `row.practice` / `row.rename` /
+//! `row.merge` / `row.archive` / `row.delete` actions, which forward to the
+//! page's `decks.practice` / `decks.rename` / `decks.merge` /
+//! `decks.archive` / `decks.delete` with this row's deck id (see
+//! `ui::rows`).
 
 use adw::prelude::*;
 use adw::subclass::prelude::*;
@@ -50,6 +52,9 @@ mod imp {
 
         fn class_init(klass: &mut Self::Class) {
             klass.bind_template();
+            klass.install_action("row.practice", None, |row, _, _| {
+                row.forward("decks.practice");
+            });
             klass.install_action("row.rename", None, |row, _, _| {
                 row.forward("decks.rename");
             });
@@ -99,6 +104,11 @@ impl DeckRow {
         imp.name_label.set_label(name);
         set_part(&imp.due_label, line.due.as_deref());
         set_part(&imp.other_label, line.other.as_deref());
+        // Every live card that is not suspended can be practised (ADR 0070).
+        let practisable = summary.card_count.saturating_sub(summary.suspended_count);
+        let can =
+            crate::pages::practice_offered(usize::try_from(practisable).unwrap_or(usize::MAX));
+        self.action_set_enabled("row.practice", can);
         imp.separator_label.set_visible(line.has_separator());
         // The row is read as one: "Scratch, 12 due, 5 new" (the "·" and the
         // units in words).
@@ -140,4 +150,42 @@ impl DeckRow {
 fn set_part(label: &gtk::Label, text: Option<&str>) {
     label.set_label(text.unwrap_or_default());
     label.set_visible(text.is_some());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Practice in a row's menu is offered while the deck has a live card
+    /// that is not suspended (ADR 0070).
+    #[test]
+    fn practice_is_offered_while_the_deck_has_a_card_to_practise() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state) = crate::testing::temporary_state();
+            let deck = state.create_deck("Spanish").unwrap();
+            let now = rappel_core::time::now_ms();
+            let list = gtk::ListBox::new();
+            let window = gtk::Window::builder().child(&list).build();
+            window.present();
+            // The row's menu, as drawn: its Practice item follows the
+            // `row.practice` action's enabled state.
+            let practice_enabled = |state: &crate::state::AppState| {
+                let decks = state.list_decks(now).unwrap();
+                let row = DeckRow::new(&decks[0], now, now + 1);
+                list.remove_all();
+                list.append(&row);
+                crate::testing::menu_item_sensitive(&row.imp().menu_button, "Practice")
+            };
+            assert!(!practice_enabled(&state));
+            let card = state
+                .add_card_with_tags(&deck.id, "q", "a", &[])
+                .unwrap()
+                .card
+                .id;
+            assert!(practice_enabled(&state));
+            state.set_suspended(&[card], true).unwrap();
+            assert!(!practice_enabled(&state));
+            window.destroy();
+        });
+    }
 }

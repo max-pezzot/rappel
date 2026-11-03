@@ -150,6 +150,36 @@ pub fn temporary_state() -> (tempfile::TempDir, crate::state::AppState) {
     (tmp, state)
 }
 
+/// Whether the item `text` of `button`'s menu can be pressed, as drawn in
+/// its open popover (the menu's `GtkModelButton`s, found by type name, as
+/// GTK offers no public way to read a menu item's state). The button must
+/// be in a window.
+pub fn menu_item_sensitive(button: &gtk::MenuButton, text: &str) -> bool {
+    use gtk::prelude::*;
+    button.popup();
+    let mut todo = vec![
+        button
+            .popover()
+            .expect("the menu is open")
+            .upcast::<gtk::Widget>(),
+    ];
+    let mut found = None;
+    while let Some(widget) = todo.pop() {
+        if widget.type_().name() == "GtkModelButton"
+            && widget.property::<Option<String>>("text").as_deref() == Some(text)
+        {
+            found = Some(widget.is_sensitive());
+        }
+        let mut child = widget.first_child();
+        while let Some(c) = child {
+            child = c.next_sibling();
+            todo.push(c);
+        }
+    }
+    button.popdown();
+    found.unwrap_or_else(|| panic!("the menu has no item {text:?}"))
+}
+
 /// A real WAV of `samples` samples of 8 kHz, 8-bit mono silence (one
 /// second is 8,000).
 pub fn wav_bytes(samples: u32) -> Vec<u8> {

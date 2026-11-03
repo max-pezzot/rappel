@@ -8,6 +8,7 @@ mod cards;
 mod decks;
 mod merge;
 mod migrations;
+mod practice;
 mod restore;
 mod review;
 mod schedule;
@@ -281,6 +282,16 @@ impl Store {
             media_dir: None,
             open_warnings: Vec::new(),
         }
+    }
+
+    /// How many rows this store's connection has changed since it was
+    /// opened (`sqlite3_total_changes64`). It exists for tests, which check
+    /// that a read such as a practice wrote nothing (ADR 0070); it is
+    /// public because the app's tests, in another crate, need it too. The
+    /// app itself does not call it.
+    #[must_use]
+    pub fn total_changes(&self) -> u64 {
+        self.conn.total_changes()
     }
 
     /// Takes the warnings from opening this store (empty after the first

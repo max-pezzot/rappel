@@ -24,7 +24,9 @@ use rappel_core::domain::Deck;
 use crate::dialogs::deck_name_dialog::{self, Purpose};
 use crate::dialogs::merge_deck;
 use crate::i18n::gettext;
-use crate::pages::{ArchivedPage, DeckPage, StatsPage, archived_text};
+use crate::pages::{
+    ArchivedPage, DeckPage, ReviewPage, StartedFrom, StatsPage, Studied, archived_text,
+};
 use crate::state::AppState;
 use crate::ui::focus::index_after_removal;
 use crate::ui::nav;
@@ -108,6 +110,7 @@ mod imp {
             rows::install_id_action(klass, "decks.rename", |page, id| {
                 page.rename(id.to_owned());
             });
+            rows::install_id_action(klass, "decks.practice", super::DecksPage::practise);
             rows::install_id_action(klass, "decks.merge", super::DecksPage::merge);
             rows::install_id_action(klass, "decks.archive", super::DecksPage::archive);
             rows::install_id_action(klass, "decks.delete", super::DecksPage::delete);
@@ -336,6 +339,34 @@ impl DecksPage {
             // Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
             self.error_toast(&with_error(
                 &gettext("The decks could not be read: {error}"),
+                &err,
+            ));
+        }
+    }
+
+    /// Practice from deck `id`'s menu: pushes a practice of the deck, which
+    /// writes nothing (ADR 0070); its Back and its summary's Back to Decks
+    /// come back here.
+    fn practise(&self, id: &str) {
+        let Some(state) = self.imp().state().cloned() else {
+            return;
+        };
+        let Some(view) = nav::navigation_view(self) else {
+            return;
+        };
+        let pushed = nav::push_unless_on_top(&view, || {
+            let studied = Studied::Deck {
+                deck: state.deck(id)?,
+                from: StartedFrom::DeckList,
+            };
+            // Nothing to refresh on a save: the list reads its counts again
+            // when it shows.
+            ReviewPage::practice(state.clone(), studied, |_| {})
+        });
+        if let Err(err) = pushed {
+            // Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
+            self.error_toast(&with_error(
+                &gettext("The session could not start: {error}"),
                 &err,
             ));
         }

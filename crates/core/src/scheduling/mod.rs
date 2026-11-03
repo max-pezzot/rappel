@@ -22,9 +22,11 @@
 //! `storage::record_review` observes the log's largest id first).
 
 pub(crate) mod fuzz;
+pub(crate) mod practice;
 pub(crate) mod scope;
 pub(crate) mod session;
 
+pub use practice::{PRACTICE_LIMIT, Practice, RELEARN_GAP};
 pub use scope::StudyScope;
 pub use session::{Due, Session, StudyInput, Summary, capped};
 

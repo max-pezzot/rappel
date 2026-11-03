@@ -204,7 +204,14 @@ template $RappelDeckPage: Adw.NavigationPage {
 }
 
 menu deck_menu {
+  // Practice goes over the deck's cards without writing anything (ADR
+  // 0070); disabled while the deck has none to practise.
   section {
+    item {
+      label: _("_Practice");
+      action: "deck.practice";
+    }
+
     item {
       label: _("_Statistics");
       action: "deck.statistics";
