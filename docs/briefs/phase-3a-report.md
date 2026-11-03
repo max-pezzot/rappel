@@ -3,11 +3,13 @@
 This report covers batch mode's run through `docs/briefs/phase-3a.md`, and it is written for the maintainer.
 
 **How each slice was done:**
-- I planned it here, and a fresh sub-agent implemented it. Slices 0 and 1 ran on Sonnet, and so did slice 7 before its redo on Opus. Every other slice ran on Opus: partway through the run you moved everything to Opus.
+- I planned it here, and a fresh sub-agent implemented it.
+- **Models.** The brief's model line says Opus for planning, implementation and review. At the start of the run you overrode it in chat: Sonnet for slices 0, 1, 7 and 9, Opus for slices 2–6 and 8, and the reviewer always on Opus; a Sonnet slice that needed more than two review rounds was to be redone on Opus. Slices 0 and 1 ran on Sonnet. Slice 7 ran on Sonnet, needed a third round and was redone on Opus. After slice 7 you withdrew the chat instruction ("no more Sonnet, everything on Opus") for the rest of the batch, so slice 7b and slices 8 and 9 ran on Opus.
 - It was checked with `scripts/check.sh` under Xvfb.
 - The `reviewer` agent (Opus) reviewed it until it had no blocking findings. Usually the reviewer also mutated the code: it removed a fix or a guard in a scratch copy and confirmed that a test then fails.
 - It then went through a PR into `phase-3a`, waited for a green CI `check`, and was squash-merged.
 - From mid-run your CI-budget rule applied (#111): a PR was opened only after the local gate and the review had passed, and fixes went up in one push.
+- Scratch builds: the reviewers' mutation builds once filled `/tmp` (a RAM-backed tmpfs); after that they went under the git-ignored `target/`. You cleaned up both `/tmp` and the `target/scratch-*` folders.
 - Nothing was merged into, pushed to or aimed at `main`, except the draft PR `phase-3a` → `main` that follows this report.
 
 **Version:** **0.4.0-beta.1** in `Cargo.toml`, `Cargo.lock`, `CHANGELOG.md` and the AppStream metainfo (`0.4.0~beta.1`). It is **not tagged**.
@@ -16,7 +18,7 @@ This report covers batch mode's run through `docs/briefs/phase-3a.md`, and it is
 
 | Slice | PR | ADR | In short |
 |---|---|---|---|
-| — | #107, #108 | — | Your brief. `pulldown-cmark` 0.13.6 for two advisories that blocked the gate (Rappel never enabled the affected wikilinks). |
+| — | #107, #108 | — | #107 your brief; #108 `pulldown-cmark` 0.13.6 for two advisories that blocked the gate (Rappel never enabled the affected wikilinks). |
 | 0. Housekeeping | #109 | — | SPEC roadmap (3a ends in 0.4.0, 3b in 1.0), CLAUDE.md's batch names, Phase 2 question 1 answered. |
 | — | #111, #112 | 0003 (amended) | CI skips the gate for docs-only PRs (yours), then made fail-safe (two ways it could skip the gate on code). |
 | 1. Small polish | #110 | 0064 | Key hints in tooltips ("Pass (2)"), Ctrl+A on All Cards, Move to Deck… per card and during review, a table's border hugs its columns (redo of #32). |
@@ -30,7 +32,7 @@ This report covers batch mode's run through `docs/briefs/phase-3a.md`, and it is
 | 8. Clean-up and hardening 4 | #123 | 0073 | 15 attacks on the new paths (rows 74–88), four fixes, among them a deck page freeze at 10,000 cards (234.6 s of CPU → 0.17 s). |
 | 9. Beta preparation | this PR | — | 0.4.0-beta.1, QUESTIONS.md, this report. The draft PR `phase-3a` → `main` follows it. |
 
-Slice 7b and #117 are not in the brief: you added them during the run (QUESTIONS.md, Phase 3a, note 5). Issues #117 and #119 are done by #121 and #122 and can be closed, and so can PR #32. #120 (white dots next to inline math) is planned after this phase.
+Slice 7b and #117 are not in the brief: you added them during the run (QUESTIONS.md, Phase 3a, note 5). #117 is done by #121 and #119 by #122. After the merge, these issues can be closed: #102, #103, #104, #105, #106, #117 and #119; #48 closes after your Orca answer (checklist 18). PR #32 was already closed on 2026-11-02 (slice 1 redid it). #120 (white dots next to inline math) is planned after this phase.
 
 Each PR's description has the full **What**, **Decisions**, **Reviewer** and **Try it** sections. Below are the parts you most need.
 
@@ -60,7 +62,7 @@ Each PR's description has the full **What**, **Decisions**, **Reviewer** and **T
 - **An export could become impossible to retry, or wrongly refused** (#121). Round 1: an export whose media plus text went past 2 GiB was refused every time, with no way out. Round 2's fix overestimated `cards.json` 5 to 60 times, so a user with 1.5–2 GiB of media would only have been offered "Export Without Media" for an export that imports fine. The Opus redo made the pre-check a true lower bound, and leaves the rest to a check after writing that offers the retry without media.
 - **French counts were cut on a phone** (#121, blocking in the Opus review): "5 à revoir · 20 nouvelles" beside the Study pill ran off the window at 360 px. They now sit under it.
 - **The same-front property test never matched** (#122, blocking): 0 of 65 cases generated a duplicate, so it could not catch a missed one. It now builds near-copies from a tiny alphabet against an independent key, with at least half the cases matching, and mutations make it fail.
-- **The deck page froze for minutes at 10,000 cards** (#123): after a reset of many cards, each changed new-card flag walked the whole list (234.6 s of CPU), even with nothing selected. Now 0.17 s.
+- **The deck page froze for minutes at 10,000 cards** (#123): after a reset of many cards, each changed new-card flag walked the whole list. With a card chosen: 234.6 s of CPU, now 0.17 s. With nothing chosen, the new test's 1,000 row changes took 8.6 s, now 19 ms.
 - **Smaller ones** (#123): practice's `query_only` was turned off at the end of a nested read; the same-front lookup copied every whole front into SQLite's sorter; a toast title was cut inside a deck name with a colon ("“Spanish"); All Cards could not find a word starting with a private-use character (#122 found it in the same-front lookup).
 - **Flaky tests:** `deck_page::…after_a_bulk_removal_the_focus_follows_the_list` waited a fixed 100 ms (fixed in #115). The drop-down test `ui::dropdown::tests::the_factories_survive_new_labels_and_the_popup_stays_narrow` failed now and then (#108, #113). Its root cause was not found; its recorded failures all predate the harness fix, it passed 40 of 40 runs under load since, and the harness now prints the failing assertion (#123).
 
@@ -80,8 +82,7 @@ None was a stop condition: the brief pre-approved migration 0012, the export fie
 - **The ruleset:** `phase-3a` had no ruleset at first (the "phase-1" ruleset targeted `refs/heads/target-*`). You fixed it on 2026-11-03 ("phase branches", `refs/heads/phase-*`, requires `check`); I checked it with `gh api`. Batch mode had waited for a green `check` before every merge anyway.
 - **Lockfile bumps:** `pulldown-cmark` 0.13.6 (#108), and `async-executor` 1.14.0 → 1.14.1 (#115), a glycin/zbus dependency yanked between the local gate and CI.
 - **Disk:**
-  - The reviewers' mutation builds once filled `/tmp`, which is a RAM-backed tmpfs (about 5.8 GB); you deleted them. Since then every scratch build goes under the git-ignored `target/`.
-  - Left there, safe to delete (the agents may not `rm -rf`): `target/scratch-s7` (4.0 GB), `target/scratch-s7r` (8.4 GB), `target/scratch-s7b` (1.3 GB), `target/scratch-s8` (7.4 GB), and the scratch data and logs in `target/tmp/`.
+  - The reviewers' mutation builds once filled `/tmp`, which is a RAM-backed tmpfs (about 5.8 GB); you deleted them. Since then every scratch build goes under the git-ignored `target/`, and you have deleted the `target/scratch-*` folders too.
 - **Known limits from the PRs:**
   - **Files moved between machines:** a Move or a merge on machine A is not carried to machine B by import, and a merged deck comes back empty when an older backup is imported (question 1).
   - **0.3.0-beta.1 cannot import a file from this version** (question 2).
@@ -114,7 +115,7 @@ None. Every licence is as before.
 All are local, in `docs/briefs/screenshots/` (git-ignored); each PR lists its own. Slices 0, 8 and 9 have none (slice 8 changed only an error toast's text).
 - **Slice 1, small polish** (`p3a-s1-*`):
   - review page without hints: `p3a-s1-review-{1000,360,640x360}-{light,dark}-{front,back}.png`, French `p3a-s1-review-360-fr-{front,back,menu,chooser,toast}.png`;
-  - Move to Deck…: `p3a-s1-review-1000-light-{menu,chooser,moved}.png`, `p3a-s1-deck-{1000,360}-{light,dark}-*`, `p3a-s1-deck-640x360-light-menu.png`, `p3a-s1-deck-360-fr-{menu,chooser,toast}.png`;
+  - Move to Deck…: `p3a-s1-review-1000-light-{menu,chooser,moved}.png`, `p3a-s1-deck-1000-light-{menu,chooser,toast,undone}.png`, `p3a-s1-deck-1000-dark-{menu,chooser,toast}.png`, `p3a-s1-deck-360-light-{menu,chooser,toast}.png`, `p3a-s1-deck-640x360-light-menu.png`, `p3a-s1-deck-360-fr-{menu,chooser,toast}.png`;
   - Ctrl+A: `p3a-s1-allcards-1000-light-ctrl-a-in-search.png`, `p3a-s1-allcards-1000-light-selected.png`;
   - tables: `p3a-s1-table-{narrow,wide}-1000-front.png`, `p3a-s1-table-wide-360-front.png`, `p3a-s1-table-360-{c7,c7back,c8,c8back}.png`.
 - **Slice 2, selection on the deck page** (`p3a-s2-*`): `p3a-s2-deck-{light,dark}-{1000,360}-{normal,selecting}.png`, `p3a-s2-deck-light-640x360-{normal,selecting}.png`, `p3a-s2-deck-fr-360-{normal,selecting}.png`, `p3a-s2-deck-light-360-close-normal.png` (close-only buttons), All Cards after the refactor `p3a-s2-allcards-light-1000-{normal,selecting}.png`, `p3a-s2-allcards-dark-360-{normal,selecting}.png`.
@@ -145,11 +146,16 @@ This gives the "Scratch (30 cards)" deck (5 due, tags, 3 suspended), six demo de
 2. **Review page hints (#105, #117):** Study a deck. No "Space", "1", "2" under the buttons. Hover Show Answer, Fail, Pass, Undo and Edit: "Show Answer (Space)", "Fail (1)", "Pass (2)", and the Undo and Edit keys. Open the card editor (+ on a deck page): no "Ctrl ⏎ to save"; Save's tooltip is "Save (Ctrl+Enter)".
 3. **Move to Deck… (#102):** on the deck page, a card's ⋮ → Move to Deck… (above Delete): the chooser never lists the card's own deck; the card leaves, "Card moved", Undo puts it back in its place. In review, Card Menu → Move to Deck…: the next card shows, and Undo brings the moved one back as the next card. With a single deck, the entry is greyed out.
 4. **Ctrl+A (#106):** on All Cards, Ctrl+A from the list, a filter or the Select button chooses every listed card; in the search field it selects the text only.
-5. **Tables:** study the Markdown deck of `fill_scratch_db -- <dir> 30 --markdown` (any new folder): the "A table:" card's border hugs its three columns.
+5. **Tables:** in a second scratch folder,
+   ```sh
+   cargo run -p rappel-core --example fill_scratch_db -- $PWD/target/tmp/p3a-tables 30 --markdown
+   RAPPEL_DATA_DIR=$PWD/target/tmp/p3a-tables cargo run -p rappel
+   ```
+   study the Markdown deck: the "A table:" card's border hugs its three columns.
 6. **Selection on the deck page (#104):** open "Scratch (30 cards)", Select Cards (between Study and ⋮). Choose two rows: "2 Selected"; each bar action works and its Undo restores the list and the counts. Bug-fix check: Suspend one card from its ⋮ menu, Ctrl+A, then Undo in the "Card suspended" toast: every card stays ticked and the title still says "30 Selected". Escape leaves the mode, a second Escape goes back.
 7. **Merge (#103):** on the deck list, French Vocabulary's ⋮ → Merge Into…: the body says how many cards move; Enter on the drop-down opens its list, never merges; archived decks are not offered. Merge into Chemical Elements: the row leaves, "Decks merged", Undo brings the deck back with its cards. From a deck page, Merge Into… goes back to the deck list focused on the target.
 8. **The import keeps a card's deck (question 1):** Export… to a file. Move a card to another deck (step 3), then Import… the file: the dialog says "1 card is in another deck in the file and stays in the one it is in now." Import: the card stays in its new deck.
-9. **Archive:** "Archived Decks" (with a 1) ends the deck list. Archive Calculus from its ⋮ menu: "Deck archived", Undo. On the Archived Decks page, Unarchive; after the last one you are back on the deck list. On All Cards, the fourth drop-down "Archived Hidden" / "Archived Shown"; Escape or Clear Filters leaves it as it is. Statistics: the forecast leaves archived decks out, reviews per day still count them.
+9. **Archive:** "Archived Decks" (with a 1) ends the deck list. Archive Calculus from its ⋮ menu: "Deck archived", Undo. On the Archived Decks page, Unarchive Calculus only (Art History stays archived, for step 12). On All Cards, the fourth drop-down "Archived Hidden" / "Archived Shown"; Escape or Clear Filters leaves it as it is. Statistics: the forecast leaves archived decks out, reviews per day still count them.
 10. **Study by tag:** World Capitals → a card's ⋮ → "Study Cards Tagged “geography”": the title is "Tagged “geography”", with due cards from World Capitals and Flags. The Deck Menu has a "Study Cards Tagged" submenu. On All Cards, choose "geography" in the tag filter: a play button appears beside Select Cards. Archive Flags, study the tag again: no Flags card.
 11. **Practice:** finish a session: "Practice" (grey) sits beside "Back to Deck", which has the focus. Practise: the banner "Practice — nothing is rescheduled"; a failed card comes back after three others; Ctrl+Z steps back. The summary says "Practice: nothing was rescheduled". Back goes to the deck page, and its counts are unchanged. Practice is also first in the Deck Menu and in each deck row's ⋮ menu (that one ends with "Back to Decks").
 12. **Same front (#119):** French Vocabulary → Ctrl+N, type `THE  KEY`: after a pause, "A card in “French Vocabulary” has the same front" with Show Card; Save still works. Type `Who sculpted *The Thinker*?`: the note names the archived deck. Show Card opens Card Information; Escape returns with the text intact.
@@ -173,16 +179,17 @@ This gives the "Scratch (30 cards)" deck (5 due, tags, 3 suspended), six demo de
     4. Press Study on the "Orca" deck: the session has only these two new cards.
     5. **The 200-letter run:** when the card shows, Orca reads the focused card. Listen: "Before", the run, "after". It must **not** say "zero width space", "space", or pause oddly every 64 letters. Press Where Am I (Keypad Enter on the Desktop layout, Orca+Enter on the Laptop layout) to hear it again. Press Space: the back "run" is read.
     6. **The long card:** when it shows, Orca starts reading "word word…"; press Ctrl to stop it. Under the card the note says "This card is long: only its start is shown. Edit it to see all of it." Use Where Am I, then Tab once and Shift+Tab back. The note must be heard **once** each time, not as part of the card's text and again as its own label. Press Space to reveal: the back reads "long" with no note.
-    7. In the editor (E on the long card): switch to Preview: the same note under the preview, heard once.
-    8. Write down what Orca said in each case; #48 is closed by your answer.
+    7. In the editor (E on the long card): on a narrow window, switch to Preview. Under the preview the editor's own note says "This card is long: only its start is previewed." It must be heard once.
+    8. **Flat review across the run.** The screen-reader name of a card's label has the breaks removed, but the label's text (AT-SPI Text interface) still holds the U+200B characters (`crates/app/src/render/mod.rs`, `name_without_breaks`), and flat review reads that text. Back on the review page with the 200-letter card, enter flat review and move through it: on the Desktop layout, KP_7 / KP_8 / KP_9 (previous, current, next line) and KP_4 / KP_5 / KP_6 (previous, current, next word); on the Laptop layout, Orca+U / Orca+I / Orca+O for lines and Orca+J / Orca+K / Orca+L for words. Orca must never say "zero width space", and the run must not be split into odd pieces every 64 letters.
+    9. Write down what Orca said in each case; #48 is closed by your answer.
 19. **Orca, the other new items:**
     - **Selection title (#121):** with minimise and maximise shown and the window at 360 px, a deck page → Select Cards (bottom bar) → choose 30 cards with Ctrl+A. The title shows "30"; Orca must read "30 Selected", not "30". At 1000 px it reads "30 Selected" too. Each row reads "…, selected" or "…, not selected"; the bar buttons read "Move selected cards to a deck", "Delete selected cards" and so on.
     - **Same-front note (#122):** in the card editor, type `the key` and stop: Orca reads "A card in “French Vocabulary” has the same front" **once**, politely (after what it was saying, not interrupting), and not again at each key you type later. On the front field, Where Am I includes the note as its description. Tab from the front: Orca reads "Show Card" with the note. Enter opens Card Information; Escape comes back to Show Card.
     - **Practice banner (#118):** start a practice. Listen whether Orca announces "Practice — nothing is rescheduled" or only the card when the page opens; the page's name is "Practice". If the banner is only heard when you browse to it (Orca's flat review: the Orca key + the keypad, or Tab), tell me: it may need an announcement.
-    - **Import Cancel toast (#121):** make a large export to import: `cargo run -p rappel-core --example fill_scratch_db -- $PWD/target/tmp/p3a-big 50000 --due 100`, run Rappel on that folder (`RAPPEL_DATA_DIR=$PWD/target/tmp/p3a-big cargo run -p rappel`), Export…, quit; then in the test folder Import… that file. While "Checking the file…" shows, Tab reaches **Cancel** and Orca reads the toast's text and "Cancel"; Escape cancels too: "Import cancelled", nothing imported. (If the check ends before you can listen, use more cards.)
+    - **Import Cancel toast (#121):** make a large export to import: `cargo run -p rappel-core --example fill_scratch_db -- $PWD/target/tmp/p3a-big 20000 --due 100` (filling 50,000 cards takes about 10 minutes; 20,000 is usually enough to listen), run Rappel on that folder (`RAPPEL_DATA_DIR=$PWD/target/tmp/p3a-big cargo run -p rappel`), Export…, quit; then in the test folder Import… that file. While "Checking the file…" shows, Tab reaches **Cancel** and Orca reads the toast's text and "Cancel"; Escape cancels too: "Import cancelled", nothing imported. (If the check ends before you can listen, use more cards.)
     - Also: All Cards' Study button reads "Study Cards Tagged geography in Every Deck"; the merge drop-down reads "Merge Into"; each Unarchive button reads "Unarchive “…”"; the review page's title in a tag session reads "Tagged geography".
 20. **Answer QUESTIONS.md, Phase 3a**, notes 1 to 7.
-21. **Merge the draft PR `phase-3a` → `main`** when you are satisfied. Tag `v0.4.0-beta.1` yourself if you want a release; I did not tag. The CHANGELOG's compare links point at that tag, so they give a 404 until it exists. Then close #117, #119 and PR #32, and delete the `target/scratch-*` folders.
+21. **Merge the draft PR `phase-3a` → `main`** when you are satisfied. Tag `v0.4.0-beta.1` yourself if you want a release; I did not tag. The CHANGELOG's compare links point at that tag, so they give a 404 until it exists. Then close issues #102, #103, #104, #105, #106, #117 and #119; close #48 once you have answered it (step 18).
 
 ## Decisions, with reasons
 The full list is in each PR's **Decisions** section and its ADR. The ones that change behaviour you might not expect:

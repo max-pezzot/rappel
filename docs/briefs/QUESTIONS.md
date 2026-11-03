@@ -40,7 +40,8 @@ None of these was a stop condition: the brief pre-approved the migration (0012),
    - Why: they are explicit card commands, not practice answers, and they do not reschedule anything, so "Practice: nothing was rescheduled" stays true. The reviewer recommended keeping them.
    - Question: keep them, or hide them during practice?
 4. **How slice 7 was "redone" on Opus** (#121).
-   - Decided: the Sonnet implementation needed a third review round (its round-2 fix, a far too high size estimate, stopped users with 1.5–2 GiB of media from making a full export). Under your rule, an Opus implementer took over the same branch, re-examined every commit, kept the work it verified and fixed the rest in new commits; a fresh Opus reviewer then reviewed the whole slice. Nothing was reset or rewritten from scratch.
+   - Background: the brief's model line says Opus for everything. At the start of the run you overrode it in chat (Sonnet for slices 0, 1, 7 and 9, Opus for 2–6 and 8, the reviewer always on Opus, and a Sonnet slice needing more than two review rounds redone on Opus); after slice 7 you withdrew that ("no more Sonnet, everything on Opus"), so 7b, 8 and 9 ran on Opus.
+   - Decided: the Sonnet implementation of slice 7 needed a third review round (its round-2 fix, a far too high size estimate, stopped users with 1.5–2 GiB of media from making a full export). Under your rule, an Opus implementer took over the same branch, re-examined every commit, kept the work it verified and fixed the rest in new commits; a fresh Opus reviewer then reviewed the whole slice. Nothing was reset or rewritten from scratch.
    - Why: most of the slice was sound and tested, and history is never discarded.
    - Question: is that how a "redo" should work next time, or do you want a rewrite from the integration branch?
 5. **`docs/briefs/phase-3a.md` does not list slice 7b (#119, done in #122) or #117 (done in slice 7, #121)**, which you added during the run. SPEC §4 lists 7b as Phase 3a item 9 and the report covers both.
@@ -52,3 +53,4 @@ None of these was a stop condition: the brief pre-approved the migration (0012),
 7. **Two points of CLAUDE.md's CI budget, left for you in #112** (CLAUDE.md is yours, so I did not edit it):
    - "nor add docs to a code PR after CI has passed" can clash with fixing reviewer findings, which are often docs. Suggested wording: "batch such fixes into one push".
    - The docs-only check classes `.claude/` (the guard hook and the agents) as docs, so a change to the guard skips the gate. Should `.claude/hooks/` run it?
+   - Still unchecked: whether `gh pr checks` (and so batch mode's wait) counts a skipped `check` as passing. No docs-only PR was opened after #111 and #112: #109 came before them and ran the gate, and every later PR changed code. The first docs-only PR will show it.
