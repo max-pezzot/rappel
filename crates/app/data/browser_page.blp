@@ -55,6 +55,17 @@ template $RappelBrowserPage: Adw.NavigationPage {
             label: _("Select Cards");
           }
         }
+
+        // While the tag filter names a tag: a session over the cards that
+        // carry it, in every deck that is not archived (ADR 0069). Its
+        // tooltip and accessible label ("Study Cards Tagged “verbs”") are
+        // set in pages/browser_page.rs.
+        [end]
+        Gtk.Button study_tag_button {
+          visible: false;
+          icon-name: "media-playback-start-symbolic";
+          action-name: "browser.study-filter-tag";
+        }
       }
 
       // How many cards are chosen, Select All and Cancel (HIG, "Selection

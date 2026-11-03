@@ -14,11 +14,12 @@ use crate::ui::text::with_error;
 use adw::prelude::*;
 use adw::subclass::prelude::*;
 use gtk::{gio, glib};
-use rappel_core::domain::{Card, Deck};
+use rappel_core::domain::{Card, Deck, Tag};
 use rappel_core::storage::BrowseQuery;
 
 use crate::dialogs::card_editor::{CardEditor, Saved};
 use crate::dialogs::{card_info, move_card};
+use crate::pages::{ReviewPage, StartedFrom};
 use crate::state::AppState;
 use crate::ui::selection::{Bulk, CardSelection, Parts, SelectionPage};
 use crate::ui::text::one_line;
@@ -60,6 +61,8 @@ mod imp {
         pub search_entry: TemplateChild<gtk::SearchEntry>,
         #[template_child]
         pub select_button: TemplateChild<gtk::Button>,
+        #[template_child]
+        pub study_tag_button: TemplateChild<gtk::Button>,
         #[template_child]
         pub selection_header: TemplateChild<SelectionHeader>,
         #[template_child]
@@ -117,6 +120,9 @@ mod imp {
         pub quiet: Cell<bool>,
         /// Something was written here: the other pages read it on leaving.
         pub dirty: Cell<bool>,
+        /// A study session was started from here: the rows' statuses are
+        /// read again when the page shows again.
+        pub studied: Cell<bool>,
         /// The window, noted when the page is shown: a page that was popped
         /// may no longer have a root when `hidden` is emitted.
         pub window: glib::WeakRef<crate::window::RappelWindow>,
@@ -145,6 +151,14 @@ mod imp {
                 page.run_on(id, super::Bulk::Reset);
             });
             rows::install_id_action(klass, "browser.move-card", super::BrowserPage::move_card);
+            // A card's menu, with a tag's id; and the header's button, for
+            // the tag the filter names (ADR 0069).
+            rows::install_id_action(klass, "browser.study-tag", super::BrowserPage::study_tag);
+            klass.install_action("browser.study-filter-tag", None, |page, _, _| {
+                if let Some(tag) = page.filter_tag() {
+                    page.study_tag(&tag.id);
+                }
+            });
             rows::install_id_action(klass, "browser.delete-card", |page, id| {
                 page.run_on(id, super::Bulk::Delete);
             });
@@ -390,6 +404,12 @@ impl BrowserPage {
             page.imp()
                 .window
                 .set(page.root().and_downcast::<RappelWindow>().as_ref());
+            // Back from studying: the statuses ("Due in 3 days") changed,
+            // and the decks' counts, which the window reads on leaving.
+            if page.imp().studied.replace(false) {
+                page.imp().dirty.set(true);
+                page.requery();
+            }
             page.focus_search();
         });
         self.add_escape();
@@ -658,7 +678,67 @@ impl BrowserPage {
         imp.count_label.set_label(&text::count_text(items.len()));
         // Select is enabled while there is a card to choose.
         self.selection().list_changed();
+        self.update_study_tag();
         Ok(())
+    }
+
+    /// The tag the tag filter names, if it names one.
+    fn filter_tag(&self) -> Option<Tag> {
+        let imp = self.imp();
+        let tags = imp.tags.borrow();
+        text::filter_choice(imp.tag_filter.selected(), tags.len()).map(|i| tags[i].clone())
+    }
+
+    /// Shows the header's Study button while the tag filter names a tag,
+    /// labelled for it.
+    fn update_study_tag(&self) {
+        let button = &self.imp().study_tag_button;
+        match self.filter_tag() {
+            Some(tag) => {
+                // Every deck, whatever the deck filter shows (ADR 0069).
+                button.set_tooltip_text(Some(&card_row::text::study_tag_everywhere(
+                    &tag.name, false,
+                )));
+                button.update_property(&[gtk::accessible::Property::Label(
+                    &card_row::text::study_tag_everywhere(&tag.name, true),
+                )]);
+                button.set_visible(true);
+            }
+            None => button.set_visible(false),
+        }
+    }
+
+    /// Pushes a session over the cards carrying tag `tag_id` in every deck
+    /// that is not archived (ADR 0069): from a card's menu, or the header's
+    /// button for the tag filter's. Its Back, and its summary's Back to All
+    /// Cards, come back here, which then reads its rows again.
+    fn study_tag(&self, tag_id: &str) {
+        let Some(state) = self.imp().state.get() else {
+            return;
+        };
+        if self.selecting() {
+            return;
+        }
+        let on_saved = glib::clone!(
+            #[weak(rename_to = page)]
+            self,
+            move |saved| page.saved(&saved)
+        );
+        match ReviewPage::push_for_tag(self, state, tag_id, StartedFrom::AllCards, on_saved) {
+            // Only a session actually pushed changes what this page shows.
+            Ok(pushed) => {
+                if pushed {
+                    self.imp().studied.set(true);
+                }
+            }
+            Err(err) => {
+                // Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
+                self.error_toast(&with_error(
+                    &gettext("The session could not start: {error}"),
+                    &err,
+                ));
+            }
+        }
     }
 
     fn clear_filters(&self) {
@@ -949,6 +1029,60 @@ mod tests {
 
     fn shown(page: &BrowserPage) -> Vec<String> {
         page.ids()
+    }
+
+    /// While the tag filter names a tag, the header offers to study it,
+    /// saying which in its tooltip and accessible label; it pushes a
+    /// session over that tag, and the page reads its rows again once back
+    /// (ADR 0069).
+    #[test]
+    fn a_tag_filter_offers_to_study_its_cards() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state, ids, _) = state_with_cards();
+            let view = adw::NavigationView::new();
+            let window = gtk::Window::builder().child(&view).build();
+            let page = page_over(&state, None);
+            view.push(&page);
+            let imp = page.imp();
+            let button = &imp.study_tag_button;
+            assert!(!button.get_visible(), "no tag chosen");
+
+            imp.tag_filter.set_selected(1);
+            assert_eq!(
+                page.filter_tag().map(|t| t.name).as_deref(),
+                Some("algebra")
+            );
+            assert!(button.get_visible());
+            assert_eq!(
+                button.tooltip_text().as_deref(),
+                Some("Study Cards Tagged “\u{2068}algebra\u{2069}” in Every Deck")
+            );
+            imp.tag_filter.set_selected(0);
+            assert!(!button.get_visible());
+
+            imp.tag_filter.set_selected(1);
+            page.activate_action("browser.study-filter-tag", None)
+                .unwrap();
+            let review = view
+                .visible_page()
+                .and_downcast::<ReviewPage>()
+                .expect("a session is pushed");
+            assert_eq!(review.deck_id(), None);
+            assert!(imp.studied.get());
+            // A second activation does not stack another session.
+            page.activate_action("browser.study-filter-tag", None)
+                .unwrap();
+            assert_eq!(view.navigation_stack().n_items(), 2);
+            // A card's menu studies its tag the same way, with the tag's id.
+            view.pop();
+            assert!(ids.iter().all(|id| shown(&page).contains(id)));
+            let tag = page.filter_tag().unwrap();
+            imp.tag_filter.set_selected(0);
+            page.activate_action("browser.study-tag", Some(&tag.id.to_variant()))
+                .unwrap();
+            assert!(view.visible_page().and_downcast::<ReviewPage>().is_some());
+            window.destroy();
+        });
     }
 
     #[test]

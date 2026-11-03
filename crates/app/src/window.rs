@@ -519,6 +519,7 @@ impl RappelWindow {
     /// row now at the deck's place once shown (ADR 0068: an archived deck
     /// has no page).
     pub fn leave_archived_deck(&self, page: &DeckPage, state: &AppState, id: &str) {
+        self.deck_archived(id);
         let decks = &self.imp().decks_page;
         decks.focus_place_on_return(id);
         decks.show_archived_toast(state, id.to_owned());
@@ -548,6 +549,7 @@ impl RappelWindow {
             deck.as_deref() == Some(id)
         });
         state.archive_deck(id)?;
+        self.deck_archived(id);
         // Read while the row is still in the list: it leaves at the next
         // reload.
         decks.focus_place_on_return(id);
@@ -566,6 +568,17 @@ impl RappelWindow {
             page.focus_deck(id);
         }
         Ok(())
+    }
+
+    /// Deck `id` was just archived: an open tag session drops its cards
+    /// (`ReviewPage::leave_deck`, ADR 0069). A page of the deck itself
+    /// (its page, its own session) is left by the caller.
+    pub fn deck_archived(&self, id: &str) {
+        for page in self.pages() {
+            if let Some(review) = page.downcast_ref::<ReviewPage>() {
+                review.leave_deck(id);
+            }
+        }
     }
 
     /// Makes the deck list focus deck `id`'s row the next time it shows
@@ -919,6 +932,60 @@ mod tests {
                     .all(crate::widgets::DeckRow::can_merge)
             );
             assert_eq!(state.card_count(&source).unwrap(), 2);
+            window.destroy();
+        });
+    }
+
+    /// A tag's session is no deck's (ADR 0069): closed during one started
+    /// from All Cards, the window reopens on the deck list; started from a
+    /// deck page, on that deck, as under a deck's session.
+    #[test]
+    fn a_tag_session_is_not_remembered_as_the_last_deck() {
+        crate::testing::with_widgets(|| {
+            let (window, page, _tmp) = reopened_with(1);
+            let imp = window.imp();
+            imp.navigation_view.set_animate_transitions(false);
+            let state = imp.state.get().unwrap().clone();
+            let deck = page.deck_id().unwrap();
+            let card = &state.list_tagged_cards(&deck).unwrap()[0].card.id;
+            state
+                .add_tags_to_cards(
+                    std::slice::from_ref(card),
+                    &["verbs".to_owned()],
+                    usize::MAX,
+                )
+                .unwrap();
+            let tag_id = state.tags().unwrap()[0].id.clone();
+            let saved = || {
+                window.save_state();
+                window_state::load(state.data_dir()).deck_id
+            };
+            // From the deck page: that deck is open under the session.
+            page.activate_action("deck.study-tag", Some(&tag_id.to_variant()))
+                .unwrap();
+            assert!(
+                imp.navigation_view
+                    .visible_page()
+                    .is_some_and(|p| p.is::<ReviewPage>())
+            );
+            assert_eq!(saved().as_deref(), Some(deck.as_str()));
+            // From All Cards opened on the deck list: no deck.
+            imp.navigation_view.pop_to_page(&*imp.decks_page);
+            WidgetExt::activate_action(&window, "win.search", None).unwrap();
+            let browser = imp
+                .navigation_view
+                .visible_page()
+                .and_downcast::<BrowserPage>()
+                .unwrap();
+            browser
+                .activate_action("browser.study-tag", Some(&tag_id.to_variant()))
+                .unwrap();
+            assert!(
+                imp.navigation_view
+                    .visible_page()
+                    .is_some_and(|p| p.is::<ReviewPage>())
+            );
+            assert_eq!(saved(), None);
             window.destroy();
         });
     }

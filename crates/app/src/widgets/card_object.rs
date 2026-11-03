@@ -150,6 +150,11 @@ impl CardObject {
         self.imp().tags.borrow()
     }
 
+    /// The tags themselves, with their ids (a row's menu studies them).
+    pub fn tag_list(&self) -> Ref<'_, Vec<Tag>> {
+        self.imp().tag_list.borrow()
+    }
+
     /// Whether either preview has been made (they are made on first use).
     #[cfg(test)]
     pub fn has_previews(&self) -> bool {

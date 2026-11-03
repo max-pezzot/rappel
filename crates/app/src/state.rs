@@ -17,7 +17,7 @@ use rappel_core::interchange::{
     AnkiPlan, AnkiReport, ExportSummary, FileKind, ImportPlan, ImportReport, file_kind,
 };
 use rappel_core::media::{CleanedUp, MediaRef, TrashTidied, UnusedMedia};
-use rappel_core::scheduling::StudyInput;
+use rappel_core::scheduling::{StudyInput, StudyScope};
 use rappel_core::stats::{CardInfo, DayGrid, Stats};
 use rappel_core::storage::{
     self, BackupInfo, BrowseQuery, BrowseRow, Merged, Moved, OpenWarning, Restored, Scope, Store,
@@ -463,7 +463,6 @@ impl AppState {
     }
 
     /// Every tag, unused ones too (see [`Store::tags`]).
-    #[cfg(test)]
     pub fn tags(&self) -> rappel_core::Result<Vec<Tag>> {
         self.0.store.borrow().tags()
     }
@@ -478,13 +477,13 @@ impl AppState {
         self.0.store.borrow().card(id)
     }
 
-    /// What a deck has to study at `now`, with the study day starting at
+    /// What `scope` (a deck or a tag) has to study at `now`, with the study day starting at
     /// the settings' day start hour, local time (`local_day_start_ms`; see
     /// [`Store::study_input`]).
-    pub fn study_input(&self, deck_id: &str, now: i64) -> rappel_core::Result<StudyInput> {
+    pub fn study_input(&self, scope: &StudyScope, now: i64) -> rappel_core::Result<StudyInput> {
         let store = self.0.store.borrow();
         let hour = store.settings()?.day_start_hour;
-        store.study_input(deck_id, now, local_day_start_ms(now, hour))
+        store.study_input(scope, now, local_day_start_ms(now, hour))
     }
 
     /// When the next study day begins after `now`, UTC milliseconds (the
@@ -523,8 +522,12 @@ impl AppState {
 
     /// When what a deck has to study next changes (see
     /// [`Store::next_study_change`]).
-    pub fn next_study_change(&self, deck_id: &str, now: i64) -> rappel_core::Result<Option<i64>> {
-        self.0.store.borrow().next_study_change(deck_id, now)
+    pub fn next_study_change(
+        &self,
+        scope: &StudyScope,
+        now: i64,
+    ) -> rappel_core::Result<Option<i64>> {
+        self.0.store.borrow().next_study_change(scope, now)
     }
 
     /// Records an answer (see [`Store::record_review`]).

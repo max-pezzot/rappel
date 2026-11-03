@@ -22,12 +22,12 @@ use adw::subclass::prelude::*;
 use gtk::{gio, glib};
 use rappel_core::Error;
 use rappel_core::domain::{Card, CardState, Deck, TaggedCard};
-use rappel_core::scheduling::StudyInput;
+use rappel_core::scheduling::{StudyInput, StudyScope};
 
 use crate::dialogs::card_editor::{CardEditor, Saved};
 use crate::dialogs::{card_info, merge_deck, move_card};
 use crate::i18n::gettext;
-use crate::pages::{ReviewPage, StatsPage};
+use crate::pages::{ReviewPage, StartedFrom, StatsPage};
 use crate::state::AppState;
 use crate::ui::focus::{self, ShownFocus, index_after_removal};
 use crate::ui::selection::{CardSelection, Parts, SelectionPage};
@@ -89,6 +89,18 @@ mod imp {
         pub card_list: TemplateChild<gtk::ListView>,
         #[template_child]
         pub empty_add_button: TemplateChild<gtk::Button>,
+        #[template_child]
+        pub deck_menu: TemplateChild<gio::MenuModel>,
+        #[template_child]
+        pub deck_menu_button: TemplateChild<gtk::MenuButton>,
+        /// The cards changed since `tag_section` was filled: it is filled
+        /// again when the Deck Menu opens, not on every change.
+        pub tag_menu_stale: Cell<bool>,
+        /// The Deck Menu's section with the "Study Cards Tagged" submenu
+        /// of the deck's tags (ADR 0069), empty while no card has a tag.
+        pub tag_section: OnceCell<gio::Menu>,
+        /// What `tag_section` shows, so an unchanged list is left alone.
+        pub tag_menu: RefCell<Option<crate::widgets::card_row::text::DeckTagMenu>>,
         pub state: OnceCell<AppState>,
         pub deck: OnceCell<Deck>,
         /// The cards, oldest first.
@@ -156,6 +168,8 @@ mod imp {
             });
             rows::install_id_action(klass, "deck.reset-card", super::DeckPage::reset);
             rows::install_id_action(klass, "deck.card-info", super::DeckPage::card_info);
+            // A card's menu, with a tag's id (ADR 0069).
+            rows::install_id_action(klass, "deck.study-tag", super::DeckPage::study_tag);
             // A long press on a touch screen: start choosing with the card.
             rows::install_id_action(klass, "deck.select-card", |page, id| {
                 if let Some(selection) = page.imp().selection.get() {
@@ -179,7 +193,25 @@ mod imp {
                 &self.empty_status,
                 super::EMPTY_ICON,
             );
+            // After Statistics: the deck's tags to study (ADR 0069).
+            let section = gio::Menu::new();
+            if let Some(menu) = self.deck_menu.downcast_ref::<gio::Menu>() {
+                menu.insert_section(1, None, &section);
+            }
+            crate::ui::init_once(&self.tag_section, section);
             let page = self.obj();
+            // `GtkMenuButton:active` turns on as the menu opens; the
+            // popover follows its model's changes (`GtkPopoverMenu`), so
+            // filling the section then shows the tags of now.
+            self.deck_menu_button.connect_active_notify(glib::clone!(
+                #[weak]
+                page,
+                move |button| {
+                    if button.is_active() {
+                        page.update_tag_menu();
+                    }
+                }
+            ));
             // Back from studying: what is left to study changed, and so
             // may which cards are new. The rows are refreshed before the
             // focus is set, so it lands on a row that stays.
@@ -262,6 +294,9 @@ impl DeckPage {
             move |_, _, _, _| {
                 page.update_empty_state();
                 page.update_study();
+                // Read the tags when the Deck Menu opens: a change here
+                // can be one of thousands of cards (ADR 0069).
+                page.imp().tag_menu_stale.set(true);
                 // Select follows whether there is a card; an emptied list
                 // ends selection mode.
                 page.selection().list_changed();
@@ -292,6 +327,7 @@ impl DeckPage {
         init_once(&imp.cards, store);
         page.update_empty_state();
         page.update_study();
+        imp.tag_menu_stale.set(true);
         page.update_can_move();
         page.selection().list_changed();
         Ok(page)
@@ -351,6 +387,49 @@ impl DeckPage {
         let narrow = imp.selection_narrow_on.get() || self.compact();
         imp.selection_header.set_compact(narrow);
         imp.selection_bar.set_compact(narrow);
+    }
+
+    /// Fills the Deck Menu's "Study Cards Tagged" submenu with the tags of
+    /// the deck's cards (`card_row::text::deck_tag_menu`), each studying
+    /// its tag (`deck.study-tag`); past the cap, the last entry opens All
+    /// Cards (`win.search`, filtered to this deck), where every tag is in
+    /// the filter. Does nothing unless the cards changed since
+    /// (`tag_menu_stale`): run when the Deck Menu opens.
+    fn update_tag_menu(&self) {
+        let imp = self.imp();
+        if !imp.tag_menu_stale.replace(false) {
+            return;
+        }
+        let (Some(section), Some(store)) = (imp.tag_section.get(), imp.cards.get()) else {
+            return;
+        };
+        let items: Vec<CardObject> = (0..store.n_items())
+            .filter_map(|p| store.item(p).and_downcast::<CardObject>())
+            .collect();
+        let lists: Vec<_> = items.iter().map(CardObject::tag_list).collect();
+        let menu = card_row::text::deck_tag_menu(lists.iter().flat_map(|l| l.iter()));
+        drop(lists);
+        if *imp.tag_menu.borrow() == menu {
+            return;
+        }
+        section.remove_all();
+        if let Some(menu) = &menu {
+            let submenu = gio::Menu::new();
+            for (label, id) in &menu.items {
+                submenu.append_item(&gio::MenuItem::new(
+                    Some(label),
+                    Some(&gio::Action::print_detailed_name(
+                        "deck.study-tag",
+                        Some(&id.to_variant()),
+                    )),
+                ));
+            }
+            if let Some(more) = &menu.more {
+                submenu.append(Some(more), Some("win.search"));
+            }
+            section.append_submenu(Some(&menu.label), &submenu);
+        }
+        imp.tag_menu.replace(menu);
     }
 
     /// Enables the rows' Move to Deck… while another deck exists, and the
@@ -434,12 +513,13 @@ impl DeckPage {
             return;
         };
         let now = rappel_core::time::now_ms();
-        match state.study_input(&deck.id, now) {
+        let scope = StudyScope::deck(&deck.id);
+        match state.study_input(&scope, now) {
             Ok(input) => {
                 imp.window_title.set_subtitle(&study_subtitle(&input));
                 self.action_set_enabled("deck.study", !input.is_empty());
                 match (
-                    state.next_study_change(&deck.id, now),
+                    state.next_study_change(&scope, now),
                     state.next_day_start(now),
                 ) {
                     (Ok(next), Ok(day)) => self.arm_study_timer(timer_delay_ms(now, next, day)),
@@ -498,6 +578,37 @@ impl DeckPage {
             Ok::<_, rappel_core::Error>(page)
         });
         if let Err(err) = pushed {
+            // Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
+            self.error_toast(&with_error(
+                &gettext("The session could not start: {error}"),
+                &err,
+            ));
+        }
+    }
+
+    /// Pushes a session over the cards carrying tag `tag_id` in every deck
+    /// that is not archived (a card's menu, ADR 0069). Its Back, and its
+    /// summary's Back to Deck, come back here; `shown` then reads the
+    /// counts again, which the session changed.
+    fn study_tag(&self, tag_id: &str) {
+        let Some(state) = self.imp().state.get() else {
+            return;
+        };
+        if self.selecting() {
+            return;
+        }
+        // Cards of this deck saved from the session's editor update this
+        // list (`show_saved` leaves out the other decks' cards).
+        let on_saved = glib::clone!(
+            #[weak(rename_to = deck_page)]
+            self,
+            move |saved| {
+                deck_page.show_saved(saved);
+            }
+        );
+        if let Err(err) =
+            ReviewPage::push_for_tag(self, state, tag_id, StartedFrom::DeckPage, on_saved)
+        {
             // Translators: a toast: what is before ":" is its title, the rest is behind Details. {error} is why, in English.
             self.error_toast(&with_error(
                 &gettext("The session could not start: {error}"),
@@ -634,10 +745,19 @@ impl DeckPage {
         }
     }
 
-    /// Puts a saved card into the list, wherever the save came from (the
-    /// review page's editor too). Returns its id.
+    /// Puts a saved card of this deck into the list, wherever the save came
+    /// from (the review page's editor too). Returns its id; `None` for a
+    /// card of another deck, which a tag's session edits too.
     fn show_saved(&self, saved: Saved) -> Option<String> {
-        let store = self.imp().cards.get()?;
+        let imp = self.imp();
+        let store = imp.cards.get()?;
+        // A tag's session edits cards of other decks too (ADR 0069).
+        let deck_id = match &saved {
+            Saved::Added(tagged) | Saved::Edited(tagged) => &tagged.card.deck_id,
+        };
+        if imp.deck.get().is_none_or(|deck| &deck.id != deck_id) {
+            return None;
+        }
         let tagged = match saved {
             Saved::Added(tagged) => {
                 // A card just added has no reviews.
@@ -1726,6 +1846,99 @@ mod tests {
             let added = state.add_card_with_tags(&deck, "q", "a", &[]).unwrap();
             page.show_saved(Saved::Added(added));
             assert!(page.item(1).unwrap().is_new());
+        });
+    }
+
+    /// A card's tag starts a session over that tag from this page (ADR
+    /// 0069); a save from it of another deck's card leaves this list alone.
+    #[test]
+    fn a_cards_tag_starts_a_session_over_it_and_other_decks_stay_out() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state, page, ids) = page_of(1);
+            let other = state.create_deck("Other").unwrap();
+            let tagged = state
+                .add_card_with_tags(&other.id, "elsewhere", "a", &["verbs".to_owned()])
+                .unwrap();
+            let view = adw::NavigationView::new();
+            let window = gtk::Window::builder().child(&view).build();
+            view.push(&page);
+            let tag = tagged.tags[0].id.clone();
+            page.activate_action("deck.study-tag", Some(&tag.to_variant()))
+                .unwrap();
+            let review = view
+                .visible_page()
+                .and_downcast::<ReviewPage>()
+                .expect("a session is pushed");
+            assert_eq!(review.deck_id(), None);
+            // An unknown tag starts nothing.
+            view.pop();
+            page.activate_action(
+                "deck.study-tag",
+                Some(&"01920000-0000-7000-8000-00000000dead".to_variant()),
+            )
+            .unwrap();
+            assert!(view.visible_page().and_downcast::<ReviewPage>().is_none());
+            // The other deck's card, saved from the session's editor.
+            let edited = state
+                .edit_card_with_tags(&tagged.card.id, "edited", "a", None)
+                .unwrap();
+            assert_eq!(page.show_saved(Saved::Edited(edited)), None);
+            let listed: Vec<String> = (0..page.imp().cards.get().unwrap().n_items())
+                .map(|p| page.item(p).unwrap().card().id.clone())
+                .collect();
+            assert_eq!(listed, ids);
+            window.destroy();
+        });
+    }
+
+    /// The Deck Menu lists the tags of the deck's cards in a "Study Cards
+    /// Tagged" submenu after Statistics, each studying its tag, and follows
+    /// the list: no tag, no submenu (ADR 0069).
+    #[test]
+    fn the_deck_menu_offers_to_study_the_decks_tags() {
+        crate::testing::with_widgets(|| {
+            let (_tmp, state, page, ids) = page_of(2);
+            let section = page.imp().tag_section.get().unwrap().clone();
+            let menu = page.imp().deck_menu.get();
+            assert_eq!(
+                menu.item_link(1, "section"),
+                Some(section.clone().upcast::<gio::MenuModel>())
+            );
+            page.update_tag_menu();
+            assert_eq!(section.n_items(), 0, "no tag yet");
+            let deck = page.deck_id().unwrap();
+            let tagged = state
+                .add_card_with_tags(&deck, "q", "a", &["zeta".to_owned(), "alpha".to_owned()])
+                .unwrap();
+            page.show_saved(Saved::Added(tagged.clone()));
+            // Filled when the menu opens, not at the change.
+            assert_eq!(section.n_items(), 0);
+            let window = gtk::Window::builder().child(&page).build();
+            window.present();
+            page.imp().deck_menu_button.set_active(true);
+            assert_eq!(section.n_items(), 1);
+            page.imp().deck_menu_button.set_active(false);
+            let submenu = section.item_link(0, "submenu").unwrap();
+            let entry = |i: i32, key: &str| {
+                submenu
+                    .item_attribute_value(i, key, Some(glib::VariantTy::STRING))
+                    .and_then(|v| v.get::<String>())
+                    .unwrap()
+            };
+            assert_eq!(submenu.n_items(), 2);
+            assert_eq!(entry(0, "label"), "\u{2068}alpha\u{2069}");
+            assert_eq!(entry(1, "label"), "\u{2068}zeta\u{2069}");
+            assert_eq!(entry(0, "action"), "deck.study-tag");
+            let alpha = tagged.tags.iter().find(|t| t.name == "alpha").unwrap();
+            assert_eq!(entry(0, "target"), alpha.id);
+            // The card goes: so does the submenu.
+            page.delete(&tagged.card.id);
+            page.update_tag_menu();
+            assert_eq!(section.n_items(), 0);
+            // Unchanged since: opening again reads nothing.
+            assert!(!page.imp().tag_menu_stale.get());
+            window.destroy();
+            assert_eq!(ids.len(), 2);
         });
     }
 

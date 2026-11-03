@@ -80,14 +80,20 @@ fn deck_reads_are_fast_at_five_thousand_cards() {
     );
     assert_eq!(
         decks[0].next_change_at,
-        store.next_study_change(&deck, NOW).unwrap()
+        store
+            .next_study_change(&crate::scheduling::StudyScope::deck(&deck), NOW)
+            .unwrap()
     );
     let (input, study) = fastest("study_input", 3, || {
-        store.study_input(&deck, NOW, day_start).unwrap()
+        store
+            .study_input(&crate::scheduling::StudyScope::deck(&deck), NOW, day_start)
+            .unwrap()
     });
     assert_eq!(study.reviews.len(), DUE);
     let (next, _) = fastest("next_study_change", 3, || {
-        store.next_study_change(&deck, NOW).unwrap()
+        store
+            .next_study_change(&crate::scheduling::StudyScope::deck(&deck), NOW)
+            .unwrap()
     });
     let (cards, listed) = fastest("list_cards", 3, || store.list_cards(&deck).unwrap());
     assert_eq!(listed.len(), CARDS);
@@ -140,6 +146,39 @@ fn listing_five_thousand_tagged_cards_is_fast() {
     assert_eq!(listed.len(), CARDS);
     assert!(listed.iter().all(|c| c.tags.len() == 2));
     assert_cpu_within(tagged, ms(LIST_TAGGED_MS), "list_tagged_cards");
+}
+
+/// A tag session over the scratch deck with the tag on every card (ADR
+/// 0069): every candidate is read and cut in Rust, not by SQL's `LIMIT`,
+/// so it is held to the deck session's bound.
+#[test]
+fn studying_a_tag_on_five_thousand_cards_is_fast() {
+    let (mut store, deck) = scratch_store();
+    let ids: Vec<String> = store
+        .list_cards(&deck)
+        .unwrap()
+        .into_iter()
+        .map(|c| c.id)
+        .collect();
+    store
+        .add_tags_to_cards(&ids, &["all".to_owned()], usize::MAX)
+        .unwrap();
+    let tag_id = store.tags().unwrap()[0].id.clone();
+    let scope = crate::scheduling::StudyScope::tag(&tag_id);
+    let day_start = NOW - DAY_MS / 2;
+    let (input, study) = fastest("study_input (tag)", 3, || {
+        store.study_input(&scope, NOW, day_start).unwrap()
+    });
+    assert_eq!(study.reviews.len(), DUE);
+    assert_eq!(study.new.len(), 20);
+    let (next, _) = fastest("next_study_change (tag)", 3, || {
+        store.next_study_change(&scope, NOW).unwrap()
+    });
+    assert_cpu_within(
+        input + next,
+        ms(STUDY_MS),
+        "study_input + next_study_change of a tag",
+    );
 }
 
 #[test]
@@ -520,7 +559,9 @@ fn a_card_with_a_long_log_is_fast() {
     });
     assert_eq!(decks[0].card_count, 1);
     let (study, _) = fastest("study_input (long log)", 3, || {
-        store.study_input(&deck, now, day_start).unwrap()
+        store
+            .study_input(&crate::scheduling::StudyScope::deck(&deck), now, day_start)
+            .unwrap()
     });
     let (info, card_info) = fastest("card_info (long log)", 3, || {
         store.card_info(&card, now).unwrap()
